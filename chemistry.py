@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Generator
 
 from scipy.special import binom
@@ -52,8 +53,8 @@ def bond_combinations(components_bonds: Tuple[Tuple[int]]):
 
 
 class Bond:
-    '''Class defining energy values of bonds between two atoms
-
+    '''
+    Class defining energy values of bonds between two atoms
     Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
     '''
 
@@ -247,37 +248,43 @@ class Compound(Component):
 
 
 if __name__ == "__main__":
+
     # testing common compounds
-    h2o = Compound([Component.get_fundamental('H'), Component.get_fundamental('O'), Component.get_fundamental('H'), Component.get_fundamental('O')], 20000)
+    h2o = CompoundOptimized([Component.get_fundamental('H'), Component.get_fundamental('O'), Component.get_fundamental('H')], 20000)
     print(h2o)
     for el in h2o.components:
         print(el)
     assert h2o.stable == True
 
-    ch4 = Compound([Component.get_fundamental('H'), Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 2000)
+    ch4 = CompoundOptimized([Component.get_fundamental('H'), Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 2000)
     print(ch4)
     for el in ch4.components:
         print(el)
     assert ch4.stable == True
 
-    co2 = Compound([Component.get_fundamental('C'), Component.get_fundamental('O'), Component.get_fundamental('O')], 2000)
+    co2 = CompoundOptimized([Component.get_fundamental('C'), Component.get_fundamental('O'), Component.get_fundamental('O')], 2000)
     print(co2)
     for el in co2.components:
         print(el)
     assert co2.stable == True
 
     comps = [Component.get_fundamental('H') for _ in range(5)]
-    impossible = Compound(comps, 10000)
+    impossible = CompoundOptimized(comps, 10000)
     print(impossible)
     for el in impossible.components:
         print(el)
     assert impossible.stable == False
 
-    '''
-    # complex compound 
+    # complex compound
     comps = [Component.get_fundamental('C') for _ in range(6)]
     comps.extend([Component.get_fundamental('O') for _ in range(6)])
     comps.extend([Component.get_fundamental('H') for _ in range(12)])
-    glucose = Compound(comps, 500000)
-    print(glucose)
-    '''
+    c6h12o6 = CompoundOptimized(comps, 500000)
+    print(c6h12o6)
+
+    ch3 = CompoundOptimized([Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 20000)
+
+    synthesis = CompoundOptimized.synthesis(ch3, Component.get_fundamental('H'), 10000)
+    print(synthesis)
+
+
