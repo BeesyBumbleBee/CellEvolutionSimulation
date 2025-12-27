@@ -146,6 +146,30 @@ class Compound:
 
         print(f"\nStable: {self.stable}, Energy remaining: {self.remaining_energy} kJ/mol")
 
+    def draw_compound(self):
+        import networkx as nx
+        import matplotlib.pyplot as plt
+        print(self.bonds)
+
+        single = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 1])
+        double = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 2])
+        triple = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 3])
+
+        graph = nx.Graph()
+        graph.add_edges_from(single)
+        graph.add_edges_from(double)
+        graph.add_edges_from(triple)
+
+        pos = nx.spring_layout(graph, seed=42)
+
+        nx.draw_networkx_nodes(graph, pos, node_size=600, node_color='white', edgecolors="black")
+        nx.draw_networkx_labels(graph, pos, font_size=10)
+        nx.draw_networkx_edges(graph, pos, arrows=True,edgelist=single, connectionstyle='arc3, rad = 0.1')
+        nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=double, connectionstyle='arc3, rad = 0.25')
+        nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=triple, connectionstyle='arc3, rad = 0.4')
+
+        plt.show()
+
     def break_bonds(self, bond_indices: List[int]) -> int:
         """
         Break specified bonds and return energy released
@@ -565,9 +589,11 @@ if __name__ == "__main__":
 
     ethane = __ethane_synthesis()
     ethane.show_structure()
+    ethane.draw_compound()
 
     glucose = __glucose_synthesis()
     glucose.show_structure()
+    glucose.draw_compound()
 
 
 
