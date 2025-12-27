@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Generator
 import logging
+import networkx as nx
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -47,10 +48,10 @@ class Atom:
 
 
 class Bond:
-    '''
+    """
     Class defining energy values of bonds between two atoms
     Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
-    '''
+    """
     class BondNotDefinedError(Exception):
         pass
 
@@ -110,7 +111,6 @@ class Compound:
         """
         self.components = components
         self.bonds = []
-        self.stable = False
         self.preserve_bonds = preserve_bonds or []
         self.remaining_energy = provided_energy
 
@@ -123,6 +123,22 @@ class Compound:
 
         self.optimal_electrons = sum([x.optimal_electrons for x in components])
         self.electrons = sum([x.cov_electrons for x in self.components])
+        self.stable = self.optimal_electrons == self.electrons
+
+    @property
+    def graph(self) -> nx.Graph:
+        graph = nx.Graph()
+        graph.add_nodes_from([i for i in range(len(self.components))])
+        graph.add_edges_from([[i, j] for _, i, j in self.bonds])
+        return graph
+
+    @property
+    def connection_graphs(self) -> List[nx.Graph]:
+        return [sub_graph for sub_graph in nx.connected_components(self.graph)]
+
+    @property
+    def is_connected(self) -> bool:
+        return len(self.connection_graphs) == 1
 
     @staticmethod
     def atom(atom_symbol:str, provided_energy:int = 0) -> Compound:
@@ -147,15 +163,14 @@ class Compound:
         print(f"\nStable: {self.stable}, Energy remaining: {self.remaining_energy} kJ/mol")
 
     def draw_compound(self):
-        import networkx as nx
         import matplotlib.pyplot as plt
-        print(self.bonds)
 
         single = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 1])
         double = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 2])
         triple = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 3])
 
         graph = nx.Graph()
+        graph.add_nodes_from([f'${self.components[i].symbol}_'+'{'f'{i}'+'}$' for i in range(len(self.components))])
         graph.add_edges_from(single)
         graph.add_edges_from(double)
         graph.add_edges_from(triple)
@@ -352,6 +367,7 @@ class Compound:
             if need > 0:
                 logger.info(f"  [{i}] {self.components[i].symbol}: needs {need} electrons")
 
+
         # Build connectivity graph from preserved bonds
         def get_connected_components():
             """Returns list of sets, each set contains indices of connected atoms"""
@@ -512,7 +528,7 @@ class Compound:
         if is_connected():
             logger.info(f"Product is fully connected")
         else:
-            connected_components = get_connected_components()
+            connected_components = connected_components
             logger.warning(f"Product has {len(connected_components)} disconnected fragments")
             for idx, comp_set in enumerate(connected_components):
                 atoms = [f"{self.components[i].symbol}[{i}]" for i in sorted(comp_set)]
@@ -539,7 +555,7 @@ class Compound:
         return False, self.remaining_energy
 
     @staticmethod
-    def from_formula(formula: str, provided_energy: int) -> 'Compound':
+    def from_formula(formula: str, provided_energy: int) -> Compound:
         """
         Create a compound from a chemical formula string
         Example: from_formula("H2O", 2000) or from_formula("C6H12O6", 50000)
@@ -560,6 +576,20 @@ class Compound:
                     compound = Compound.synthesize(compound, Compound.atom(symbol), 0)
         return compound
 
+    def split_compounds(self) -> List[Compound]:
+        compounds = []
+        for sub_graph in self.connection_graphs:
+            components = [self.components[i] for i in sub_graph]
+            scale = {comp: i for comp, i in zip(sub_graph, range(len(sub_graph)))}
+            bonds = [(bond,scale[i],scale[j]) for bond, i, j in self.bonds if i in sub_graph or j in sub_graph]
+            energy = round(self.remaining_energy * (sum([self.components[comp].mass for comp in sub_graph]) / self.mass))  # divide energy based on mass
+
+            compounds.append(Compound(components, provided_energy=energy))
+            compounds[-1].bonds = bonds
+
+        return compounds
+
+
 
 def __glucose_synthesis():
     # Example synthesis of glucose molecule C6H12O6
@@ -568,13 +598,13 @@ def __glucose_synthesis():
         coh = Compound.synthesize(oh, Compound.atom("C"), 200)
         return coh
 
-    glucose = Compound.from_formula("CHO", 2000)
+    comp = Compound.from_formula("CHO", 2000)
     for i in range(5):
-        glucose = Compound.synthesize(glucose, get_coh(), 2000)
-        glucose = Compound.synthesize(glucose, Compound.atom("H"), 2000)
-    glucose = Compound.synthesize(glucose, Compound.atom("H"), 2000)
+        comp = Compound.synthesize(comp, get_coh(), 2000)
+        comp = Compound.synthesize(comp, Compound.atom("H"), 2000)
+    comp = Compound.synthesize(comp, Compound.atom("H"), 2000)
 
-    return glucose
+    return comp
 
 def __ethane_synthesis() -> Compound:
     # Example synthesis of ethane C2H6
@@ -582,11 +612,13 @@ def __ethane_synthesis() -> Compound:
         return Compound.from_formula("CH3", 2000)
     return Compound.synthesize(ch3(), ch3(), 100)
 
+def __ammonia_synthesis() -> Compound:
+    # Example synthesis of ammonia NH3
+    return Compound.from_formula("NH3", 2000)
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     ch.setLevel(logging.DEBUG)
-
     ethane = __ethane_synthesis()
     ethane.show_structure()
     ethane.draw_compound()
@@ -595,5 +627,18 @@ if __name__ == "__main__":
     glucose.show_structure()
     glucose.draw_compound()
 
+    ammonia = __ammonia_synthesis()
+    ammonia.show_structure()
+
+    oh = Compound.from_formula("OH", 2000)
+    ammonia_oxidation = Compound.synthesize(oh, ammonia, 200, break_bonds_b=[1])
+    ammonia_oxidation.show_structure()
+    ammonia_oxidation.draw_compound()
+
+    products = ammonia_oxidation.split_compounds()
+    print(products)
+    for comp in products:
+        comp.show_structure()
+        comp.draw_compound()
 
 
