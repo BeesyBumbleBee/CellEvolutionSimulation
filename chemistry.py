@@ -1,10 +1,17 @@
 from __future__ import annotations
-
-import itertools
 from typing import List, Dict, Optional, Tuple, Generator
+import logging
 
-from scipy.special import binom
-from tqdm import tqdm
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.WARNING)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
 
 class Atom:
     class AtomNotDefined(Exception):
@@ -37,19 +44,6 @@ class Atom:
 
     def __repr__(self):
         return f'{self.symbol:2s} Mass: {self.mass:3.2f} Electrons: {self.cov_electrons:1d}'
-
-def bond_combinations(components_bonds: Tuple[Tuple[int]]):
-    number_of_bonds : int = int(binom(len(components_bonds),2))
-    possible_bonds = list([0 for _ in range(number_of_bonds)])
-
-    i = 0
-    for a, comp_A in enumerate(components_bonds[:-1]):
-        for b, comp_B in enumerate(components_bonds[a+1:]):
-            possible_values = comp_A if len(comp_A) < len(comp_B) else comp_B
-            possible_bonds[i] = possible_values
-            i+=1
-
-    return itertools.product(*possible_bonds)
 
 
 class Bond:
@@ -105,172 +99,475 @@ class Bond:
             return None
 
 
+class Compound:
+    def __init__(self, components: List[Atom],
+                 preserve_bonds: Optional[List[Tuple[int, int, int]]] = None,
+                 provided_energy: int = 0):
+        """
+        components: list of Component objects
+        preserve_bonds: optional list of (idx_a, idx_b, multiplicity) bonds to preserve from reactants
+        provided_energy: energy available for synthesis
+        """
+        self.components = components
+        self.bonds = []
+        self.stable = False
+        self.preserve_bonds = preserve_bonds or []
+        self.remaining_energy = provided_energy
 
-class Compound(Atom):
-    def __init__(self, components: List[Atom], provided_energy: int):
-        self.components : List[Atom] = sorted(components, key=lambda x: x.symbol, reverse=False)
-        self.bonds : List[Tuple[Bond, int, int]] = []
-
-        mass = sum([x.mass for x in self.components])
+        self.mass = sum([x.mass for x in self.components])
 
         symbols = []
         symbols_count = {com[0]: len(com) for com in (list(x.symbol for x in self.components if x.symbol == y.symbol) for y in set(self.components))}
         list(map(lambda x: symbols.extend([str(x[0]), str(x[1])]), sorted(symbols_count.items(), key=lambda x: x[0], reverse=False)))
-        symbol = "".join(symbols)
-        optimal_electrons = sum([x.optimal_electrons for x in components])
+        self.symbol = "".join(symbols)
 
-        self.stable : bool = False
-        electrons = sum([x.cov_electrons for x in self.components])
-
-        super().__init__(mass, symbol, electrons, optimal_electrons)
-
-        self.stable, self.remaining_energy = (self.optimal_bonds(provided_energy))
-        print(self.remaining_energy)
-        print(self.bonds)
-
-    def optimal_bonds(self, provided_energy: int):
-        '''
-        Function finding optimal bonds for compound given some energy for synthesising bonds
-
-        Brute force method - evaluate all possible bonds combinations and choose one with best score
-        (very inefficient : O(4^C(n,2)), where n - number of components)
-
-        '''
-        possible_bonds = tuple((tuple((i for i in range(min(3, max(1, c.electrons_needed))+1))) for c in self.components))
-        possible_combinations = bond_combinations(possible_bonds)
-
-        best_score = 0
-        best_comb = None
-        for comb in tqdm(possible_combinations):
-            score = Compound.evaluate_bond(comb, tuple(self.components), provided_energy)
-            if score > best_score:
-                best_score = score
-                best_comb = comb
-
-
-        self.bonds, energy_used = Compound.combination_to_bonds(best_comb, self.components)
-
-        all_stable = all(comp.cov_electrons >= comp.optimal_electrons for comp in self.components)
-
-        return all_stable, provided_energy - energy_used
+        self.optimal_electrons = sum([x.optimal_electrons for x in components])
+        self.electrons = sum([x.cov_electrons for x in self.components])
 
     @staticmethod
-    def evaluate_bond(bonds: Tuple[int], components: Tuple[Atom], max_energy: float) -> float:
-        score : float = 0.0
-        energy_used : int = 0
-        a = 0
-        b = 0
-        bonded_components = [False for _ in range(len(components))]
-        components_electrons = [x.cov_electrons for x in components]
-
-        for i, bond in enumerate(bonds):
-            b += 1
-            if b >= len(components):
-                a += 1
-                b = a+1
-            if bond == 0:
-                continue
-            comp_a = components[a]
-            comp_b = components[b]
-            components_electrons[a] += bond
-            components_electrons[b] += bond
-            if components_electrons[a] > components[a].optimal_electrons or \
-                components_electrons[b] > components[b].optimal_electrons:
-                return 0.0
-            bonded_components[a] = True
-            bonded_components[b] = True
-            energy = Bond.get_bond_energy(comp_a.symbol, comp_b.symbol, int(bond))
-            if energy is None:
-                return 0.0
-            energy_used += energy
-
-        satisfied_components = [x == components[i].optimal_electrons for i,x in enumerate(components_electrons)]
-
-        if energy_used > max_energy:
-            return 0.0
-
-        if all(bonded_components):
-            score += max_energy
-        if all(satisfied_components):
-            score += max_energy
-
-        score += max_energy - energy_used
-
-        return score
-
-    @staticmethod
-    def combination_to_bonds(bond_combination: Tuple[int], components: List[Atom]) -> Tuple[List[Tuple[Bond, int, int]], int]:
-        bonds = []
-        energy_used = 0
-        a : int = 0
-        b : int = 0
-        for i, mult in enumerate(bond_combination):
-            b += 1
-            if b >= len(components):
-                a += 1
-                b = a + 1
-            if mult == 0:
-                continue
-            components[a].cov_electrons += mult
-            components[b].cov_electrons += mult
-            energy_used += Bond.get_bond_energy(components[a].symbol, components[b].symbol, mult)
-            bonds.append((Bond(components[a], components[b], mult), a, b))
-        return bonds, energy_used
+    def atom(atom_symbol:str, provided_energy:int = 0) -> Compound:
+        return Compound([Atom.get(atom_symbol)], provided_energy=provided_energy)
 
     def __repr__(self):
         return f'{self.symbol:12s} | STABLE: {self.stable:1d} | Mass: {self.mass:4.2f}'
 
+    def show_structure(self):
+        print(f"\n{self.symbol} Structure:")
+        print(f"Atoms ({len(self.components)}):")
+        for i, comp in enumerate(self.components):
+            status = "✓" if comp.cov_electrons >= comp.optimal_electrons else "✗"
+            print(f"  [{i}] {comp.symbol}: {comp.cov_electrons}/{comp.optimal_electrons} electrons {status}")
+
+        print(f"\nBonds ({len(self.bonds)}):")
+        for bond, i, j in self.bonds:
+            bond_symbol = ['-', '=', '≡'][bond.multiplicity - 1]
+            print(
+                f"  [{i}]{self.components[i].symbol} {bond_symbol} {self.components[j].symbol}[{j}] ({bond.energy} kJ/mol)")
+
+        print(f"\nStable: {self.stable}, Energy remaining: {self.remaining_energy} kJ/mol")
+
+    def break_bonds(self, bond_indices: List[int]) -> int:
+        """
+        Break specified bonds and return energy released
+        bond_indices: list of indices in self.bonds to break
+        Returns: energy released (positive value)
+        """
+        energy_released = 0
+        bonds_to_remove = []
+
+        for idx in sorted(bond_indices, reverse=True):
+            if idx < len(self.bonds):
+                bond, i, j = self.bonds[idx]
+
+                # Remove electrons from components
+                self.components[i].cov_electrons -= bond.multiplicity
+                self.components[j].cov_electrons -= bond.multiplicity
+
+                # Energy is released when breaking bonds
+                energy_released += bond.energy
+                bonds_to_remove.append(idx)
+
+        # Remove bonds
+        for idx in bonds_to_remove:
+            del self.bonds[idx]
+
+        # Check if still stable
+        self.stable = all(comp.cov_electrons >= comp.optimal_electrons
+                          for comp in self.components)
+
+        return energy_released
+
     @staticmethod
-    def synthesis(src: Atom, other: Atom, provided_energy: int) -> Compound:
-        if isinstance(other, Compound):
-            other = other.components
+    def synthesize(comp_a: Compound,
+                   comp_b: Compound,
+                   provided_energy: int,
+                   break_bonds_a: Optional[List[int]] = None,
+                   break_bonds_b: Optional[List[int]] = None) -> Compound:
+        """
+        Synthesize a new compound from two reactants
+
+        Args:
+            comp_a: First reactant compound
+            comp_b: Second reactant compound
+            provided_energy: Energy provided for reaction
+            break_bonds_a: Indices of bonds to break in reactant_a (optional)
+            break_bonds_b: Indices of bonds to break in reactant_b (optional)
+
+        Returns:
+            New compound with reconfigured bonds
+        """
+        # Deep copy reactants to avoid modifying originals
+        import copy
+        r_a = copy.deepcopy(comp_a)
+        r_b = copy.deepcopy(comp_b)
+
+        # Break specified bonds and collect energy
+        energy_from_breaking = 0
+        if break_bonds_a:
+            energy_from_breaking += r_a.break_bonds(break_bonds_a)
+        if break_bonds_b:
+            energy_from_breaking += r_b.break_bonds(break_bonds_b)
+
+        # Total energy available
+        total_energy = provided_energy + energy_from_breaking + comp_b.remaining_energy + comp_a.remaining_energy
+
+        logger.info(f"=== Synthesis Reaction ===")
+        logger.info(f"Breaking bonds released: {energy_from_breaking} kJ/mol")
+        logger.info(f"Energy provided: {provided_energy} kJ/mol")
+        logger.info(f"Total energy available: {total_energy} kJ/mol")
+
+        # Combine components from both reactants
+        combined_components = []
+        atom_offset_b = len(r_a.components)
+
+        # Track which bonds to preserve
+        preserved_bonds = []
+
+        # Add components from reactant A with current electron state
+        for idx, comp in enumerate(r_a.components):
+            new_comp = Atom(
+                comp.mass, comp.symbol, comp.cov_electrons, comp.optimal_electrons
+            )
+            combined_components.append(new_comp)
+
+        # Preserve ALL remaining bonds from reactant A (internal structure)
+        for bond, i, j in r_a.bonds:
+            preserved_bonds.append((i, j, bond.multiplicity))
+
+        # Add components from reactant B with current electron state
+        for idx, comp in enumerate(r_b.components):
+            new_comp = Atom(
+                comp.mass, comp.symbol, comp.cov_electrons, comp.optimal_electrons
+            )
+            combined_components.append(new_comp)
+
+        # Preserve ALL remaining bonds from reactant B (internal structure)
+        for bond, i, j in r_b.bonds:
+            new_i = i + atom_offset_b
+            new_j = j + atom_offset_b
+            preserved_bonds.append((new_i, new_j, bond.multiplicity))
+
+        logger.info(f"Preserved {len(preserved_bonds)} bonds from reactants")
+        logger.info(f"Reactant A: atoms 0-{atom_offset_b - 1}")
+        logger.info(f"Reactant B: atoms {atom_offset_b}-{len(combined_components) - 1}")
+
+        product = Compound.__create_from_parts(
+            combined_components,
+            preserved_bonds,
+            total_energy,
+            atom_offset_b  # Boundary between reactant A and B
+        )
+
+        return product
+
+    @staticmethod
+    def __create_from_parts(components: List[Atom],
+                            preserved_bonds: List[Tuple[int, int, int]],
+                            provided_energy: int,
+                            boundary_idx: int) -> 'Compound':
+        """
+        Create compound with directed bonding between two reactant groups
+        Only forms bonds BETWEEN groups, not within them
+        """
+        product = Compound(components=components, provided_energy=provided_energy, preserve_bonds=preserved_bonds)
+
+        # Calculate compound properties
+        product.mass = sum(x.mass for x in components)
+        symbols_count = {}
+        for comp in components:
+            symbols_count[comp.symbol] = symbols_count.get(comp.symbol, 0) + 1
+
+        symbol_parts = []
+        for sym in sorted(symbols_count.keys()):
+            symbol_parts.extend([sym, str(symbols_count[sym])])
+        product.symbol = "".join(symbol_parts)
+
+        product.optimal_electrons = sum(x.optimal_electrons for x in components)
+
+        # Perform directed synthesis
+        product.stable, product.remaining_energy = product.__directed_bond_formation(boundary_idx)
+
+        logger.info(f"Remaining energy: {product.remaining_energy}")
+        logger.info(f"Bonds: {product.bonds}")
+
+        return product
+
+    def __directed_bond_formation(self, boundary_idx: int) -> Tuple[bool, int]:
+        """
+        Form bonds only between two reactant groups
+        Preserves internal structure of each reactant
+        PRIORITIZES creating a connected molecular structure
+
+        Args:
+            boundary_idx: Index separating reactant A (0 to boundary-1) from B (boundary to n-1)
+        """
+        n = len(self.components)
+        electrons = [comp.cov_electrons for comp in self.components]
+        optimal_electrons = [comp.optimal_electrons for comp in self.components]
+
+        bonds_made = []
+        energy_used = 0
+
+        # First, add all preserved bonds (internal structures)
+        preserved_set = set()
+        for i, j, mult in self.preserve_bonds:
+            if i < n and j < n:
+                preserved_set.add((min(i, j), max(i, j)))
+                bonds_made.append((i, j, mult, 0))  # 0 energy cost
+
+        logger.info(f"Looking for reactive sites:")
+        logger.info(f"Reactant A atoms (0-{boundary_idx - 1}):")
+        for i in range(boundary_idx):
+            need = optimal_electrons[i] - electrons[i]
+            if need > 0:
+                logger.info(f"  [{i}] {self.components[i].symbol}: needs {need} electrons")
+
+        logger.info(f"Reactant B atoms ({boundary_idx}-{n - 1}):")
+        for i in range(boundary_idx, n):
+            need = optimal_electrons[i] - electrons[i]
+            if need > 0:
+                logger.info(f"  [{i}] {self.components[i].symbol}: needs {need} electrons")
+
+        # Build connectivity graph from preserved bonds
+        def get_connected_components():
+            """Returns list of sets, each set contains indices of connected atoms"""
+            parent = list(range(n))
+
+            def find(x):
+                if parent[x] != x:
+                    parent[x] = find(parent[x])
+                return parent[x]
+
+            def union(x, y):
+                px, py = find(x), find(y)
+                if px != py:
+                    parent[px] = py
+
+            # Build union-find from existing bonds
+            for i, j, mult, energy in bonds_made:
+                union(i, j)
+
+            # Group atoms by connected component
+            components = {}
+            for i in range(n):
+                root = find(i)
+                if root not in components:
+                    components[root] = set()
+                components[root].add(i)
+
+            return list(components.values())
+
+        # Check if structure is connected
+        def is_connected():
+            components = get_connected_components()
+            return len(components) == 1
+
+        logger.info(f"PHASE 1: Ensuring connectivity between reactants")
+
+        connected_components = get_connected_components()
+        logger.info(f"Initial connected components: {len(connected_components)}")
+
+        # Find which components contain reactant A and B atoms
+        component_a = None
+        component_b = None
+        for comp_set in connected_components:
+            if any(i < boundary_idx for i in comp_set):
+                component_a = comp_set
+            if any(i >= boundary_idx for i in comp_set):
+                component_b = comp_set
+
+        # If reactants are in separate components, we MUST connect them
+        if component_a != component_b:
+            logger.info("Reactants are disconnected - finding bridge bond...")
+
+            # Find the best bridge bond to connect the two reactants
+            best_bridge = None
+            best_bridge_score = -float('inf')
+
+            for i in range(boundary_idx):  # Atoms from reactant A
+                if i not in component_a:
+                    continue
+
+                for j in range(boundary_idx, n):  # Atoms from reactant B
+                    if j not in component_b:
+                        continue
+
+                    need_i = optimal_electrons[i] - electrons[i]
+                    need_j = optimal_electrons[j] - electrons[j]
+
+                    if need_i <= 0 or need_j <= 0:
+                        continue
+
+                    # Try different bond multiplicities
+                    for mult in range(1, min(need_i, need_j, 3) + 1):
+                        energy = Bond.get_bond_energy(
+                            self.components[i].symbol,
+                            self.components[j].symbol,
+                            mult
+                        )
+
+                        if energy and energy_used + energy <= self.remaining_energy:
+                            # Score: prioritize satisfying electron needs
+                            satisfaction = mult / need_i + mult / need_j
+                            score = satisfaction * 1000 - energy
+
+                            if score > best_bridge_score:
+                                best_bridge_score = score
+                                best_bridge = (i, j, mult, energy)
+
+            # Add the bridge bond
+            if best_bridge:
+                i, j, mult, energy = best_bridge
+                bonds_made.append((i, j, mult, energy))
+                electrons[i] += mult
+                electrons[j] += mult
+                energy_used += energy
+                preserved_set.add((min(i, j), max(i, j)))
+
+                bond_symbol = ['-', '=', '≡'][mult - 1]
+                logger.info(
+                    f"  BRIDGE BOND: [{i}]{self.components[i].symbol} {bond_symbol} {self.components[j].symbol}[{j}] ({energy} kJ/mol)")
+            else:
+                logger.warning("No valid bridge bond found!")
         else:
-            other = [other]
-        if isinstance(src, Compound):
-            src = src.components
+            logger.info("Reactants already connected through preserved bonds")
+
+        logger.info(f"PHASE 2: Satisfying remaining electron needs")
+
+        # Find all possible bonds (excluding already bonded pairs)
+        bonds = []
+
+        for i in range(boundary_idx):  # Atoms from reactant A
+            for j in range(boundary_idx, n):  # Atoms from reactant B
+                if (min(i, j), max(i, j)) in preserved_set:
+                    continue  # Already bonded
+
+                need_i = optimal_electrons[i] - electrons[i]
+                need_j = optimal_electrons[j] - electrons[j]
+
+                if need_i <= 0 or need_j <= 0:
+                    continue
+
+                # Try different bond multiplicities
+                for mult in range(1, min(need_i, need_j, 3) + 1):
+                    energy = Bond.get_bond_energy(
+                        self.components[i].symbol,
+                        self.components[j].symbol,
+                        mult
+                    )
+
+                    if energy and energy_used + energy <= self.remaining_energy:
+                        # Calculate priority: prefer satisfying more needs
+                        satisfaction = mult / need_i + mult / need_j
+                        bonds.append((i, j, mult, energy, satisfaction))
+
+        # Sort by satisfaction (higher is better), then by energy (lower is better)
+        bonds.sort(key=lambda x: (-x[4], x[3]))
+
+        logger.info(f"Found {len(bonds)} additional possible bonds")
+
+        # Greedily add bonds
+        bonds_added = 0
+        for i, j, mult, energy, satisfaction in bonds:
+            # Check if we can still add this bond
+            if (electrons[i] + mult <= optimal_electrons[i] and
+                    electrons[j] + mult <= optimal_electrons[j] and
+                    energy_used + energy <= self.remaining_energy):
+                bonds_made.append((i, j, mult, energy))
+                electrons[i] += mult
+                electrons[j] += mult
+                energy_used += energy
+                preserved_set.add((min(i, j), max(i, j)))
+                bonds_added += 1
+
+                bond_symbol = ['-', '=', '≡'][mult - 1]
+                logger.info(
+                    f"  Forming: [{i}]{self.components[i].symbol} {bond_symbol} {self.components[j].symbol}[{j}] ({energy} kJ/mol)")
+
+        # Final connectivity check
+        if is_connected():
+            logger.info(f"Product is fully connected")
         else:
-            src = [src]
-        return Compound(src+other, provided_energy)
+            connected_components = get_connected_components()
+            logger.warning(f"Product has {len(connected_components)} disconnected fragments")
+            for idx, comp_set in enumerate(connected_components):
+                atoms = [f"{self.components[i].symbol}[{i}]" for i in sorted(comp_set)]
+                logger.warning(f"  Fragment {idx + 1}: {' '.join(atoms)}")
+
+        # Convert to Bond objects
+        if bonds_made:
+            self.bonds = []
+            for i, j, mult, energy in bonds_made:
+                bond_obj = Bond(self.components[i], self.components[j], mult)
+                self.bonds.append((bond_obj, i, j))
+
+            # Update component electron counts
+            for k in range(n):
+                self.components[k].cov_electrons = electrons[k]
+
+            all_satisfied = all(
+                electrons[k] >= optimal_electrons[k]
+                for k in range(n)
+            )
+
+            return all_satisfied, self.remaining_energy - energy_used
+
+        return False, self.remaining_energy
+
+    @staticmethod
+    def from_formula(formula: str, provided_energy: int) -> 'Compound':
+        """
+        Create a compound from a chemical formula string
+        Example: from_formula("H2O", 2000) or from_formula("C6H12O6", 50000)
+        """
+        import re
+
+        # Parse formula: C6H12O6 -> [('C', 6), ('H', 12), ('O', 6)]
+        pattern = r'([A-Z][a-z]?)(\d*)'
+        matches = re.findall(pattern, formula)
+
+        compound = None
+        for symbol, count in matches:
+            count = int(count) if count else 1
+            for _ in range(count):
+                if compound is None:
+                    compound = Compound.atom(symbol, provided_energy)
+                else:
+                    compound = Compound.synthesize(compound, Compound.atom(symbol), 0)
+        return compound
+
+
+def __glucose_synthesis():
+    # Example synthesis of glucose molecule C6H12O6
+    def get_coh()->Compound:
+        oh = Compound.from_formula("OH", 2000)
+        coh = Compound.synthesize(oh, Compound.atom("C"), 200)
+        return coh
+
+    glucose = Compound.from_formula("CHO", 2000)
+    for i in range(5):
+        glucose = Compound.synthesize(glucose, get_coh(), 2000)
+        glucose = Compound.synthesize(glucose, Compound.atom("H"), 2000)
+    glucose = Compound.synthesize(glucose, Compound.atom("H"), 2000)
+
+    return glucose
+
+def __ethane_synthesis() -> Compound:
+    # Example synthesis of ethane C2H6
+    def ch3() -> Compound:
+        return Compound.from_formula("CH3", 2000)
+    return Compound.synthesize(ch3(), ch3(), 100)
 
 
 if __name__ == "__main__":
+    logger.setLevel(logging.DEBUG)
+    ch.setLevel(logging.DEBUG)
 
-    # testing common compounds
-    h2o = Compound([Atom.get('H'), Atom.get('O'), Atom.get('H')], 20000)
-    print(h2o)
-    for el in h2o.components:
-        print(el)
-    assert h2o.stable == True
+    ethane = __ethane_synthesis()
+    ethane.show_structure()
 
-    ch4 = Compound([Atom.get('H'), Atom.get('C'), Atom.get('H'), Atom.get('H'), Atom.get('H')], 2000)
-    print(ch4)
-    for el in ch4.components:
-        print(el)
-    assert ch4.stable == True
+    glucose = __glucose_synthesis()
+    glucose.show_structure()
 
-    co2 = Compound([Atom.get('C'), Atom.get('O'), Atom.get('O')], 2000)
-    print(co2)
-    for el in co2.components:
-        print(el)
-    assert co2.stable == True
-
-    comps = [Atom.get('H') for _ in range(5)]
-    impossible = Compound(comps, 10000)
-    print(impossible)
-    for el in impossible.components:
-        print(el)
-    assert impossible.stable == False
-
-    # complex compound
-    comps = [Atom.get('C') for _ in range(6)]
-    comps.extend([Atom.get('O') for _ in range(6)])
-    comps.extend([Atom.get('H') for _ in range(12)])
-    c6h12o6 = Compound(comps, 500000)
-    print(c6h12o6)
-
-    ch3 = Compound([Atom.get('C'), Atom.get('H'), Atom.get('H'), Atom.get('H')], 20000)
-
-    synthesis = Compound.synthesis(ch3, Atom.get('H'), 10000)
-    print(synthesis)
 
 
