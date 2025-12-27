@@ -1,39 +1,39 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Generator
 
 from scipy.special import binom
 from tqdm import tqdm
 
-class Component:
-    class FundamentalComponentNotDefined(Exception):
+class Atom:
+    class AtomNotDefined(Exception):
         pass
 
-    fundamental_components : Dict[str, Dict] = {
-        'H': {'mass':2, 'symbol':'H', 'electrons_in_covalence':1, 'optimal_electrons':2},
-        'C': {'mass':12, 'symbol':'C', 'electrons_in_covalence':4, 'optimal_electrons':8},
-        'O': {'mass':16, 'symbol':'O', 'electrons_in_covalence':6, 'optimal_electrons':8},
+    basic_atoms: Dict[str, Dict] = {
+        'H': {'mass': 2, 'symbol': 'H', 'electrons_in_covalence': 1, 'optimal_electrons': 2},
+        'C': {'mass': 12, 'symbol': 'C', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
+        'N': {'mass': 14, 'symbol': 'N', 'electrons_in_covalence': 5, 'optimal_electrons': 8},
+        'O': {'mass': 16, 'symbol': 'O', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
     }
 
     def __init__(self, mass: float, symbol: str, electrons_in_covalence: int, optimal_electrons: int):
         assert optimal_electrons >= electrons_in_covalence
-        self.mass : float = mass
-        self.symbol : str = symbol
-        self.cov_electrons : int = electrons_in_covalence
-        self.optimal_electrons : int = optimal_electrons
+        self.mass: float = mass
+        self.symbol: str = symbol
+        self.cov_electrons: int = electrons_in_covalence
+        self.optimal_electrons: int = optimal_electrons
 
     @property
     def electrons_needed(self) -> int:
         return self.optimal_electrons - self.cov_electrons
 
     @staticmethod
-    def get_fundamental(component_name: str) -> Component:
+    def get(atom_symbol: str) -> Atom:
         try:
-            return Component(**Component.fundamental_components[component_name.upper()])
+            return Atom(**Atom.basic_atoms[atom_symbol.upper()])
         except KeyError:
-            raise Component.FundamentalComponentNotDefined
+            raise Atom.AtomNotDefined
 
     def __repr__(self):
         return f'{self.symbol:2s} Mass: {self.mass:3.2f} Electrons: {self.cov_electrons:1d}'
@@ -57,72 +57,58 @@ class Bond:
     Class defining energy values of bonds between two atoms
     Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
     '''
-
     class BondNotDefinedError(Exception):
         pass
 
     BondEnergy = {
         1: {
-            'H-H': 432,
-            'H-O': 467,
-            'C-H': 413,
-            'C-C': 347,
-            'C-O': 358,
+            'H-H': 432, 'H-O': 467, 'H-N': 391,
+            'C-H': 413, 'C-C': 347, 'C-O': 358, 'C-N': 305,
             'O-O': 146,
+            'N-N': 160, 'N-O': 201,
+
         },
         2: {
-            'C-C': 614,
-            'C-O': 745,
+            'C-C': 614, 'C-O': 745, 'C-N': 615,
             'O-O': 495,
+            'N-N': 418, 'N-O': 607,
         },
         3: {
-            'C-C': 839,
-            'C-O': 1072,
+            'C-C': 839, 'C-O': 1072, 'C-N': 891,
+            'N-N': 941,
         }
     }
 
-    def __init__(self, component_A: Component, component_B: Component, multiplicity: int = 1):
-        self.component_A : Component = component_A
-        self.component_B : Component = component_B
+    def __init__(self, component_a: Atom, component_b: Atom, multiplicity: int = 1):
+        self.component_A: Atom = component_a
+        self.component_B: Atom = component_b
         if self.component_A.symbol > self.component_B.symbol:
             temp = self.component_A
             self.component_A = self.component_B
             self.component_B = temp
-
-        self.multiplicity : int = multiplicity
+        self.multiplicity: int = multiplicity
         try:
             self.energy = Bond.BondEnergy[multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
         except KeyError:
             raise Bond.BondNotDefinedError
 
     def __repr__(self):
-        return f"{self.component_A.symbol:>2s}{['-','=','≡'][self.multiplicity-1]}{self.component_B.symbol:2s} Stored energy: {self.energy} kJ/mol"
+        return f"{self.component_A.symbol:>2s}{['-', '=', '≡'][self.multiplicity - 1]}{self.component_B.symbol:2s} Stored energy: {self.energy} kJ/mol"
 
     @staticmethod
-    def get_bond_energy(symbol_A: str, symbol_B: str, multiplicity: int) -> Optional[int]:
-        """Get bond energy if it exists, otherwise return None"""
-        if symbol_A > symbol_B:
-            symbol_A, symbol_B = symbol_B, symbol_A
-
+    def get_bond_energy(symbol_a: str, symbol_b: str, multiplicity: int) -> Optional[int]:
+        if symbol_a > symbol_b:
+            symbol_a, symbol_b = symbol_b, symbol_a
         try:
-            return Bond.BondEnergy[multiplicity][f'{symbol_A}-{symbol_B}']
+            return Bond.BondEnergy[multiplicity][f'{symbol_a}-{symbol_b}']
         except KeyError:
             return None
 
-    @staticmethod
-    def all_bonds() -> List[Bond]:
-        bonds = []
-        for k, v in Bond.BondEnergy.items():
-            for k2, v2 in v.items():
-                bonds.append(Bond(*map(lambda x: Component.get_fundamental(x), k2.split('-')), multiplicity=k))
-        return sorted(bonds, key=lambda x: x.energy, reverse=False)
 
 
-
-
-class Compound(Component):
-    def __init__(self, components: List[Component], provided_energy: int):
-        self.components : List[Component] = sorted(components, key=lambda x: x.symbol, reverse=False)
+class Compound(Atom):
+    def __init__(self, components: List[Atom], provided_energy: int):
+        self.components : List[Atom] = sorted(components, key=lambda x: x.symbol, reverse=False)
         self.bonds : List[Tuple[Bond, int, int]] = []
 
         mass = sum([x.mass for x in self.components])
@@ -169,7 +155,7 @@ class Compound(Component):
         return all_stable, provided_energy - energy_used
 
     @staticmethod
-    def evaluate_bond(bonds: Tuple[int], components: Tuple[Component], max_energy: float) -> float:
+    def evaluate_bond(bonds: Tuple[int], components: Tuple[Atom], max_energy: float) -> float:
         score : float = 0.0
         energy_used : int = 0
         a = 0
@@ -213,7 +199,7 @@ class Compound(Component):
         return score
 
     @staticmethod
-    def combination_to_bonds(bond_combination: Tuple[int], components: List[Component]) -> Tuple[List[Tuple[Bond, int, int]], int]:
+    def combination_to_bonds(bond_combination: Tuple[int], components: List[Atom]) -> Tuple[List[Tuple[Bond, int, int]], int]:
         bonds = []
         energy_used = 0
         a : int = 0
@@ -235,7 +221,7 @@ class Compound(Component):
         return f'{self.symbol:12s} | STABLE: {self.stable:1d} | Mass: {self.mass:4.2f}'
 
     @staticmethod
-    def synthesis(src: Component, other: Component, provided_energy: int) -> Compound:
+    def synthesis(src: Atom, other: Atom, provided_energy: int) -> Compound:
         if isinstance(other, Compound):
             other = other.components
         else:
@@ -250,41 +236,41 @@ class Compound(Component):
 if __name__ == "__main__":
 
     # testing common compounds
-    h2o = CompoundOptimized([Component.get_fundamental('H'), Component.get_fundamental('O'), Component.get_fundamental('H')], 20000)
+    h2o = Compound([Atom.get('H'), Atom.get('O'), Atom.get('H')], 20000)
     print(h2o)
     for el in h2o.components:
         print(el)
     assert h2o.stable == True
 
-    ch4 = CompoundOptimized([Component.get_fundamental('H'), Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 2000)
+    ch4 = Compound([Atom.get('H'), Atom.get('C'), Atom.get('H'), Atom.get('H'), Atom.get('H')], 2000)
     print(ch4)
     for el in ch4.components:
         print(el)
     assert ch4.stable == True
 
-    co2 = CompoundOptimized([Component.get_fundamental('C'), Component.get_fundamental('O'), Component.get_fundamental('O')], 2000)
+    co2 = Compound([Atom.get('C'), Atom.get('O'), Atom.get('O')], 2000)
     print(co2)
     for el in co2.components:
         print(el)
     assert co2.stable == True
 
-    comps = [Component.get_fundamental('H') for _ in range(5)]
-    impossible = CompoundOptimized(comps, 10000)
+    comps = [Atom.get('H') for _ in range(5)]
+    impossible = Compound(comps, 10000)
     print(impossible)
     for el in impossible.components:
         print(el)
     assert impossible.stable == False
 
     # complex compound
-    comps = [Component.get_fundamental('C') for _ in range(6)]
-    comps.extend([Component.get_fundamental('O') for _ in range(6)])
-    comps.extend([Component.get_fundamental('H') for _ in range(12)])
-    c6h12o6 = CompoundOptimized(comps, 500000)
+    comps = [Atom.get('C') for _ in range(6)]
+    comps.extend([Atom.get('O') for _ in range(6)])
+    comps.extend([Atom.get('H') for _ in range(12)])
+    c6h12o6 = Compound(comps, 500000)
     print(c6h12o6)
 
-    ch3 = CompoundOptimized([Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 20000)
+    ch3 = Compound([Atom.get('C'), Atom.get('H'), Atom.get('H'), Atom.get('H')], 20000)
 
-    synthesis = CompoundOptimized.synthesis(ch3, Component.get_fundamental('H'), 10000)
+    synthesis = Compound.synthesis(ch3, Atom.get('H'), 10000)
     print(synthesis)
 
 
