@@ -1,13 +1,20 @@
 from __future__ import annotations
-from enum import Enum
-from typing import List, Dict, Optional, Tuple
 
+import itertools
+from typing import List, Dict, Optional, Tuple, Generator
+
+from scipy.special import binom
+from tqdm import tqdm
 
 class Component:
     class FundamentalComponentNotDefined(Exception):
         pass
 
-    fundamental_components : Dict[str, Component] = {}
+    fundamental_components : Dict[str, Dict] = {
+        'H': {'mass':2, 'symbol':'H', 'electrons_in_covalence':1, 'optimal_electrons':2},
+        'C': {'mass':12, 'symbol':'C', 'electrons_in_covalence':4, 'optimal_electrons':8},
+        'O': {'mass':16, 'symbol':'O', 'electrons_in_covalence':6, 'optimal_electrons':8},
+    }
 
     def __init__(self, mass: float, symbol: str, electrons_in_covalence: int, optimal_electrons: int):
         assert optimal_electrons >= electrons_in_covalence
@@ -16,34 +23,43 @@ class Component:
         self.cov_electrons : int = electrons_in_covalence
         self.optimal_electrons : int = optimal_electrons
 
+    @property
     def electrons_needed(self) -> int:
         return self.optimal_electrons - self.cov_electrons
 
     @staticmethod
     def get_fundamental(component_name: str) -> Component:
         try:
-            return Component.fundamental_components[component_name.upper()]
+            return Component(**Component.fundamental_components[component_name.upper()])
         except KeyError:
             raise Component.FundamentalComponentNotDefined
 
     def __repr__(self):
         return f'{self.symbol:2s} Mass: {self.mass:3.2f} Electrons: {self.cov_electrons:1d}'
 
+def bond_combinations(components_bonds: Tuple[Tuple[int]]):
+    number_of_bonds : int = int(binom(len(components_bonds),2))
+    possible_bonds = list([0 for _ in range(number_of_bonds)])
 
-Component.fundamental_components = {
-    'H': Component(mass=2, symbol="H", electrons_in_covalence=1, optimal_electrons=2),
-    'C': Component(mass=12, symbol="C", electrons_in_covalence=4, optimal_electrons=8),
-    'O': Component(mass=16, symbol="O", electrons_in_covalence=6, optimal_electrons=8),
-}
+    i = 0
+    for a, comp_A in enumerate(components_bonds[:-1]):
+        for b, comp_B in enumerate(components_bonds[a+1:]):
+            possible_values = comp_A if len(comp_A) < len(comp_B) else comp_B
+            possible_bonds[i] = possible_values
+            i+=1
+
+    return itertools.product(*possible_bonds)
+
 
 class Bond:
-    class BondNotDefinedError(Exception):
-        pass
-
     '''Class defining energy values of bonds between two atoms
 
     Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
     '''
+
+    class BondNotDefinedError(Exception):
+        pass
+
     BondEnergy = {
         1: {
             'H-H': 432,
@@ -84,7 +100,6 @@ class Bond:
     @staticmethod
     def get_bond_energy(symbol_A: str, symbol_B: str, multiplicity: int) -> Optional[int]:
         """Get bond energy if it exists, otherwise return None"""
-        # Ensure alphabetical order
         if symbol_A > symbol_B:
             symbol_A, symbol_B = symbol_B, symbol_A
 
@@ -107,7 +122,7 @@ class Bond:
 class Compound(Component):
     def __init__(self, components: List[Component], provided_energy: int):
         self.components : List[Component] = sorted(components, key=lambda x: x.symbol, reverse=False)
-        self.bonds: List[Tuple[int, int, int]] = []
+        self.bonds : List[Tuple[Bond, int, int]] = []
 
         mass = sum([x.mass for x in self.components])
 
@@ -119,118 +134,101 @@ class Compound(Component):
 
         self.stable : bool = False
         electrons = sum([x.cov_electrons for x in self.components])
-        if electrons // 8 == electrons / 8:
-            self.stable = True
 
         super().__init__(mass, symbol, electrons, optimal_electrons)
 
-        self.stable, self.remaining_energy = self.evaluate_bonds(provided_energy)
+        self.stable, self.remaining_energy = (self.optimal_bonds(provided_energy))
         print(self.remaining_energy)
         print(self.bonds)
 
-    def evaluate_bonds(self, provided_energy: int):
+    def optimal_bonds(self, provided_energy: int):
         '''
-        bonds = []
+        Function finding optimal bonds for compound given some energy for synthesising bonds
 
-        available_components = self.components.copy()
-        for m in range(0, 10):
-            for bond in Bond.all_bonds():
-                if len(available_components) < 2:
-                    break
-                try:
-                    comp_A = next(filter(lambda x: x[1].symbol == bond.component_A.symbol, enumerate(available_components)))
-                    comp_B = next(filter(lambda x: x[1].symbol == bond.component_B.symbol, enumerate(available_components)))
-                except StopIteration:
-                    continue
-                if comp_A[0] == comp_B[0]:
-                    continue
+        Brute force method - evaluate all possible bonds combinations and choose one with best score
+        (very inefficient : O(4^C(n,2)), where n - number of components)
 
-
-                to_remove = []
-                for b in bonds:
-                    if ((bond.component_A, bond.component_B) == (b.component_A, bond.component_B)
-                            and ((provided_energy+b.energy-bond.energy)>= 0)
-                            and (b.multiplicity < bond.multiplicity)):
-                        provided_energy += b.energy
-                        to_remove.append(b)
-                for x in to_remove:
-                    bonds.remove(x)
-
-                if (provided_energy - bond.energy) < 0:
-                    break
-                provided_energy -= bond.energy
-
-                available_components[comp_A[0]].cov_electrons += 1 * bond.multiplicity
-                if available_components[comp_A[0]].cov_electrons >= 8:
-                    available_components.pop(comp_A[0])
-                    comp_B = (comp_B[0]-1, comp_B[1])
-
-                available_components[comp_B[0]].cov_electrons += 1 * bond.multiplicity
-                if available_components[comp_B[0]].cov_electrons >= 8:
-                    available_components.pop(comp_B[0])
-
-                bonds.append(Bond(comp_A[1], comp_B[1], bond.multiplicity))
-
-        self.bonds = bonds
-
-        for b in self.bonds:
-            print(b)
-        print(provided_energy)
-        return provided_energy
         '''
-        n = len(self.components)
-        energy_used = 0
+        possible_bonds = tuple((tuple((i for i in range(min(3, max(1, c.electrons_needed))+1))) for c in self.components))
+        possible_combinations = bond_combinations(possible_bonds)
 
-        max_iterations = 20
+        best_score = 0
+        best_comb = None
+        for comb in tqdm(possible_combinations):
+            score = Compound.evaluate_bond(comb, tuple(self.components), provided_energy)
+            if score > best_score:
+                best_score = score
+                best_comb = comb
 
-        for iteration in range(max_iterations):
-            best_bond = None
-            best_energy = float('inf')
-            best_indices = None
 
-            for i in range(n):
-                for j in range(i + 1, n):
-                    comp_i = self.components[i]
-                    comp_j = self.components[j]
-
-                    if comp_i.electrons_needed() == 0 and comp_j.electrons_needed() == 0:
-                        continue
-
-                    for mult in [1, 2, 3]:
-                        bond_energy = Bond.get_bond_energy(comp_i.symbol, comp_j.symbol, mult)
-                        if bond_energy is None:
-                            continue
-
-                        if energy_used + bond_energy > provided_energy:
-                            continue
-
-                        electrons_provided = mult
-                        would_help = (comp_i.electrons_needed() >= electrons_provided or
-                                      comp_j.electrons_needed() >= electrons_provided)
-
-                        if not would_help:
-                            continue
-
-                        if bond_energy < best_energy:
-                            best_energy = bond_energy
-                            best_bond = mult
-                            best_indices = (i, j)
-
-            if best_bond is not None:
-                i, j = best_indices
-                mult = best_bond
-
-                self.bonds.append((i, j, mult))
-                self.components[i].cov_electrons += mult
-                self.components[j].cov_electrons += mult
-                energy_used += best_energy
-            else:
-                break
+        self.bonds, energy_used = Compound.combination_to_bonds(best_comb, self.components)
 
         all_stable = all(comp.cov_electrons >= comp.optimal_electrons for comp in self.components)
 
         return all_stable, provided_energy - energy_used
 
+    @staticmethod
+    def evaluate_bond(bonds: Tuple[int], components: Tuple[Component], max_energy: float) -> float:
+        score : float = 0.0
+        energy_used : int = 0
+        a = 0
+        b = 0
+        bonded_components = [False for _ in range(len(components))]
+        components_electrons = [x.cov_electrons for x in components]
+
+        for i, bond in enumerate(bonds):
+            b += 1
+            if b >= len(components):
+                a += 1
+                b = a+1
+            if bond == 0:
+                continue
+            comp_a = components[a]
+            comp_b = components[b]
+            components_electrons[a] += bond
+            components_electrons[b] += bond
+            if components_electrons[a] > components[a].optimal_electrons or \
+                components_electrons[b] > components[b].optimal_electrons:
+                return 0.0
+            bonded_components[a] = True
+            bonded_components[b] = True
+            energy = Bond.get_bond_energy(comp_a.symbol, comp_b.symbol, int(bond))
+            if energy is None:
+                return 0.0
+            energy_used += energy
+
+        satisfied_components = [x == components[i].optimal_electrons for i,x in enumerate(components_electrons)]
+
+        if energy_used > max_energy:
+            return 0.0
+
+        if all(bonded_components):
+            score += max_energy
+        if all(satisfied_components):
+            score += max_energy
+
+        score += max_energy - energy_used
+
+        return score
+
+    @staticmethod
+    def combination_to_bonds(bond_combination: Tuple[int], components: List[Component]) -> Tuple[List[Tuple[Bond, int, int]], int]:
+        bonds = []
+        energy_used = 0
+        a : int = 0
+        b : int = 0
+        for i, mult in enumerate(bond_combination):
+            b += 1
+            if b >= len(components):
+                a += 1
+                b = a + 1
+            if mult == 0:
+                continue
+            components[a].cov_electrons += mult
+            components[b].cov_electrons += mult
+            energy_used += Bond.get_bond_energy(components[a].symbol, components[b].symbol, mult)
+            bonds.append((Bond(components[a], components[b], mult), a, b))
+        return bonds, energy_used
 
     def __repr__(self):
         return f'{self.symbol:12s} | STABLE: {self.stable:1d} | Mass: {self.mass:4.2f}'
@@ -249,5 +247,37 @@ class Compound(Component):
 
 
 if __name__ == "__main__":
-    comp = Compound([Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('O')], 1200)
-    print(comp)
+    # testing common compounds
+    h2o = Compound([Component.get_fundamental('H'), Component.get_fundamental('O'), Component.get_fundamental('H'), Component.get_fundamental('O')], 20000)
+    print(h2o)
+    for el in h2o.components:
+        print(el)
+    assert h2o.stable == True
+
+    ch4 = Compound([Component.get_fundamental('H'), Component.get_fundamental('C'), Component.get_fundamental('H'), Component.get_fundamental('H'), Component.get_fundamental('H')], 2000)
+    print(ch4)
+    for el in ch4.components:
+        print(el)
+    assert ch4.stable == True
+
+    co2 = Compound([Component.get_fundamental('C'), Component.get_fundamental('O'), Component.get_fundamental('O')], 2000)
+    print(co2)
+    for el in co2.components:
+        print(el)
+    assert co2.stable == True
+
+    comps = [Component.get_fundamental('H') for _ in range(5)]
+    impossible = Compound(comps, 10000)
+    print(impossible)
+    for el in impossible.components:
+        print(el)
+    assert impossible.stable == False
+
+    '''
+    # complex compound 
+    comps = [Component.get_fundamental('C') for _ in range(6)]
+    comps.extend([Component.get_fundamental('O') for _ in range(6)])
+    comps.extend([Component.get_fundamental('H') for _ in range(12)])
+    glucose = Compound(comps, 500000)
+    print(glucose)
+    '''
