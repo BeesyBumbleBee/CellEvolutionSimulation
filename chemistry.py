@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Generator
+from typing import List, Dict, Optional, Tuple
 import logging
 import networkx as nx
 
@@ -44,7 +44,8 @@ class Atom:
             raise Atom.AtomNotDefined
 
     def __repr__(self):
-        return f'{self.symbol:2s} Mass: {self.mass:3.2f} Electrons: {self.cov_electrons:1d}'
+        status = "✓" if self.cov_electrons >= self.optimal_electrons else "✗"
+        return f'{self.symbol:2s} Mass: {self.mass:5.2f} Electrons: {self.cov_electrons:2d}/{self.optimal_electrons:2d} ({status})'
 
 
 class Bond:
@@ -145,22 +146,20 @@ class Compound:
         return Compound([Atom.get(atom_symbol)], provided_energy=provided_energy)
 
     def __repr__(self):
-        return f'{self.symbol:12s} | STABLE: {self.stable:1d} | Mass: {self.mass:4.2f}'
+        return f'{self.symbol:12s} | STABLE: {self.stable} | Mass: {self.mass:4.2f} | Energy remaining: {self.remaining_energy:8.2f} kJ/mol'
 
-    def show_structure(self):
-        print(f"\n{self.symbol} Structure:")
+    def summary(self):
+        print('*', '=' * 80, '*')
+        print(f"{self} \nStructure:")
         print(f"Atoms ({len(self.components)}):")
         for i, comp in enumerate(self.components):
-            status = "✓" if comp.cov_electrons >= comp.optimal_electrons else "✗"
-            print(f"  [{i}] {comp.symbol}: {comp.cov_electrons}/{comp.optimal_electrons} electrons {status}")
+            print(f"  [{i}] {comp}")
 
         print(f"\nBonds ({len(self.bonds)}):")
-        for bond, i, j in self.bonds:
-            bond_symbol = ['-', '=', '≡'][bond.multiplicity - 1]
+        for i, bond in enumerate(self.bonds):
             print(
-                f"  [{i}]{self.components[i].symbol} {bond_symbol} {self.components[j].symbol}[{j}] ({bond.energy} kJ/mol)")
-
-        print(f"\nStable: {self.stable}, Energy remaining: {self.remaining_energy} kJ/mol")
+                f"  [{i}] {bond[0]} kJ/mol)")
+        print('*', '=' * 80, '*')
 
     def draw_compound(self):
         import matplotlib.pyplot as plt
@@ -614,31 +613,35 @@ def __ethane_synthesis() -> Compound:
 
 def __ammonia_synthesis() -> Compound:
     # Example synthesis of ammonia NH3
-    return Compound.from_formula("NH3", 2000)
+    return Compound.from_formula("NH3", 1400)
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     ch.setLevel(logging.DEBUG)
+
+    print("C2H6 Syntehesis")
     ethane = __ethane_synthesis()
-    ethane.show_structure()
+    ethane.summary()
     ethane.draw_compound()
 
+    print("\nC6H12O6 Syntehesis")
     glucose = __glucose_synthesis()
-    glucose.show_structure()
+    glucose.summary()
     glucose.draw_compound()
 
+    print("\nAmonia oxidation NH3 + OH -> NH2 + H2O")
     ammonia = __ammonia_synthesis()
-    ammonia.show_structure()
-
     oh = Compound.from_formula("OH", 2000)
-    ammonia_oxidation = Compound.synthesize(oh, ammonia, 200, break_bonds_b=[1])
-    ammonia_oxidation.show_structure()
+    energy_before = oh.remaining_energy + ammonia.remaining_energy
+    print(f"Total energy before: {energy_before}")
+    ammonia_oxidation = Compound.synthesize(oh, ammonia, 0, break_bonds_b=[1])
+    print(f"Total energy after: {ammonia_oxidation.remaining_energy}")
+    print(f"Reaction enthalpy = {energy_before - ammonia_oxidation.remaining_energy}")
+    ammonia_oxidation.summary()
     ammonia_oxidation.draw_compound()
 
     products = ammonia_oxidation.split_compounds()
     print(products)
     for comp in products:
-        comp.show_structure()
+        comp.summary()
         comp.draw_compound()
-
-
