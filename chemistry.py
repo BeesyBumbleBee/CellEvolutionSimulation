@@ -173,14 +173,15 @@ class Compound:
         graph.add_edges_from(single)
         graph.add_edges_from(double)
         graph.add_edges_from(triple)
-
         pos = nx.spring_layout(graph, seed=42)
-
         nx.draw_networkx_nodes(graph, pos, node_size=600, node_color='white', edgecolors="black")
         nx.draw_networkx_labels(graph, pos, font_size=10)
         nx.draw_networkx_edges(graph, pos, arrows=True,edgelist=single, connectionstyle='arc3, rad = 0.1')
+        nx.draw_networkx_edge_labels(graph, pos, edge_labels={tuple(edge): f'{i}' for i, edge in enumerate(single)})
+
         nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=double, connectionstyle='arc3, rad = 0.25')
         nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=triple, connectionstyle='arc3, rad = 0.4')
+
 
         plt.show()
 
