@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Generator
 import logging
 import networkx as nx
 
@@ -89,7 +89,7 @@ class Bond:
             raise Bond.BondNotDefinedError
 
     def __repr__(self):
-        return f"{self.component_A.symbol:>2s}{['-', '=', '≡'][self.multiplicity - 1]}{self.component_B.symbol:2s} Stored energy: {self.energy} kJ/mol"
+        return f"{self.component_A.symbol:>2s}{['-', '=', '≡'][self.multiplicity - 1]}{self.component_B.symbol:2s} Energy: {self.energy} kJ/mol"
 
     @staticmethod
     def get_bond_energy(symbol_a: str, symbol_b: str, multiplicity: int) -> Optional[int]:
@@ -184,36 +184,29 @@ class Compound:
 
         plt.show()
 
-    def break_bonds(self, bond_indices: List[int]) -> int:
+    @staticmethod
+    def break_bonds(comp_a: Compound, bond_idx_a: List[int], comp_b: Compound, bond_idx_b: List[int]) -> Generator[int]:
         """
         Break specified bonds and return energy released
         bond_indices: list of indices in self.bonds to break
         Returns: energy released (positive value)
         """
-        energy_released = 0
-        bonds_to_remove = []
+        energy_consumed = 0
+        comp_a_bonds = [(comp_a.bonds[i], comp_a, i) for i in bond_idx_a]
+        comp_b_bonds = [(comp_b.bonds[i], comp_b, i) for i in bond_idx_b]
+        bonds = comp_a_bonds + comp_b_bonds
 
-        for idx in sorted(bond_indices, reverse=True):
-            if idx < len(self.bonds):
-                bond, i, j = self.bonds[idx]
+        sorted_bond_energies = sorted(bonds, key=lambda x: x[0][0].energy)
+        for comp_bond, compound, idx in sorted_bond_energies:
+            bond, i, j = comp_bond
 
-                # Remove electrons from components
-                self.components[i].cov_electrons -= bond.multiplicity
-                self.components[j].cov_electrons -= bond.multiplicity
+            yield bond.energy
+            yield 0
 
-                # Energy is released when breaking bonds
-                energy_released += bond.energy
-                bonds_to_remove.append(idx)
-
-        # Remove bonds
-        for idx in bonds_to_remove:
-            del self.bonds[idx]
-
-        # Check if still stable
-        self.stable = all(comp.cov_electrons >= comp.optimal_electrons
-                          for comp in self.components)
-
-        return energy_released
+            compound.components[i].cov_electrons -= bond.multiplicity
+            compound.components[j].cov_electrons -= bond.multiplicity
+            del compound.bonds[idx]
+            compound.stable = all(comp.cov_electrons >= comp.optimal_electrons for comp in compound.components)
 
     @staticmethod
     def synthesize(comp_a: Compound,
@@ -239,19 +232,21 @@ class Compound:
         r_a = copy.deepcopy(comp_a)
         r_b = copy.deepcopy(comp_b)
 
-        # Break specified bonds and collect energy
-        energy_from_breaking = 0
-        if break_bonds_a:
-            energy_from_breaking += r_a.break_bonds(break_bonds_a)
-        if break_bonds_b:
-            energy_from_breaking += r_b.break_bonds(break_bonds_b)
+        total_energy = provided_energy + comp_b.remaining_energy + comp_a.remaining_energy
 
-        # Total energy available
-        total_energy = provided_energy + energy_from_breaking + comp_b.remaining_energy + comp_a.remaining_energy
+        # Break specified bonds and collect energy
+        energy_to_break = 0
+        if break_bonds_a or break_bonds_b:
+            bond_breaks = Compound.break_bonds(r_a, break_bonds_a if break_bonds_a else [], r_b, break_bonds_b if break_bonds_b else [])
+            for energy_required in bond_breaks:
+                if total_energy - energy_required >= 0:
+                    bond_breaks.__next__()
+                    total_energy -= energy_required
+                    energy_to_break += energy_required
 
         logger.info(f"=== Synthesis Reaction ===")
-        logger.info(f"Breaking bonds released: {energy_from_breaking} kJ/mol")
         logger.info(f"Energy provided: {provided_energy} kJ/mol")
+        logger.info(f"Breaking bonds consumed: {energy_to_break} kJ/mol")
         logger.info(f"Total energy available: {total_energy} kJ/mol")
 
         # Combine components from both reactants
@@ -344,7 +339,7 @@ class Compound:
         optimal_electrons = [comp.optimal_electrons for comp in self.components]
 
         bonds_made = []
-        energy_used = 0
+        energy_released = 0
 
         # First, add all preserved bonds (internal structures)
         preserved_set = set()
@@ -445,7 +440,7 @@ class Compound:
                             mult
                         )
 
-                        if energy and energy_used + energy <= self.remaining_energy:
+                        if energy and energy_released + energy <= self.remaining_energy:
                             # Score: prioritize satisfying electron needs
                             satisfaction = mult / need_i + mult / need_j
                             score = satisfaction * 1000 - energy
@@ -460,7 +455,7 @@ class Compound:
                 bonds_made.append((i, j, mult, energy))
                 electrons[i] += mult
                 electrons[j] += mult
-                energy_used += energy
+                energy_released += energy
                 preserved_set.add((min(i, j), max(i, j)))
 
                 bond_symbol = ['-', '=', '≡'][mult - 1]
@@ -495,10 +490,9 @@ class Compound:
                         mult
                     )
 
-                    if energy and energy_used + energy <= self.remaining_energy:
-                        # Calculate priority: prefer satisfying more needs
-                        satisfaction = mult / need_i + mult / need_j
-                        bonds.append((i, j, mult, energy, satisfaction))
+                    # Calculate priority: prefer satisfying more needs
+                    satisfaction = mult / need_i + mult / need_j
+                    bonds.append((i, j, mult, energy, satisfaction))
 
         # Sort by satisfaction (higher is better), then by energy (lower is better)
         bonds.sort(key=lambda x: (-x[4], x[3]))
@@ -510,12 +504,11 @@ class Compound:
         for i, j, mult, energy, satisfaction in bonds:
             # Check if we can still add this bond
             if (electrons[i] + mult <= optimal_electrons[i] and
-                    electrons[j] + mult <= optimal_electrons[j] and
-                    energy_used + energy <= self.remaining_energy):
+                    electrons[j] + mult <= optimal_electrons[j]):
                 bonds_made.append((i, j, mult, energy))
                 electrons[i] += mult
                 electrons[j] += mult
-                energy_used += energy
+                energy_released += energy
                 preserved_set.add((min(i, j), max(i, j)))
                 bonds_added += 1
 
@@ -527,7 +520,7 @@ class Compound:
         if is_connected():
             logger.info(f"Product is fully connected")
         else:
-            connected_components = connected_components
+            connected_components = get_connected_components()
             logger.warning(f"Product has {len(connected_components)} disconnected fragments")
             for idx, comp_set in enumerate(connected_components):
                 atoms = [f"{self.components[i].symbol}[{i}]" for i in sorted(comp_set)]
@@ -549,7 +542,7 @@ class Compound:
                 for k in range(n)
             )
 
-            return all_satisfied, self.remaining_energy - energy_used
+            return all_satisfied, self.remaining_energy + energy_released
 
         return False, self.remaining_energy
 
@@ -593,27 +586,28 @@ class Compound:
 def __glucose_synthesis():
     # Example synthesis of glucose molecule C6H12O6
     def get_coh()->Compound:
-        oh = Compound.from_formula("OH", 2000)
-        coh = Compound.synthesize(oh, Compound.atom("C"), 200)
+        oh = Compound.from_formula("OH", 0)
+        coh = Compound.synthesize(oh, Compound.atom("C"), 0)
         return coh
 
-    comp = Compound.from_formula("CHO", 2000)
+    comp = Compound.from_formula("CHO", 0)
     for i in range(5):
-        comp = Compound.synthesize(comp, get_coh(), 2000)
-        comp = Compound.synthesize(comp, Compound.atom("H"), 2000)
-    comp = Compound.synthesize(comp, Compound.atom("H"), 2000)
+        comp = Compound.synthesize(comp, get_coh(), 0)
+        comp = Compound.synthesize(comp, Compound.atom("H"), 0)
+        comp.draw_compound()
+    comp = Compound.synthesize(comp, Compound.atom("H"), 0)
 
     return comp
 
 def __ethane_synthesis() -> Compound:
     # Example synthesis of ethane C2H6
     def ch3() -> Compound:
-        return Compound.from_formula("CH3", 2000)
-    return Compound.synthesize(ch3(), ch3(), 100)
+        return Compound.from_formula("CH3", 0)
+    return Compound.synthesize(ch3(), ch3(), 0)
 
 def __ammonia_synthesis() -> Compound:
     # Example synthesis of ammonia NH3
-    return Compound.from_formula("NH3", 1400)
+    return Compound.from_formula("NH3", 0)
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
@@ -624,24 +618,25 @@ if __name__ == "__main__":
     ethane.summary()
     ethane.draw_compound()
 
-    print("\nC6H12O6 Syntehesis")
-    glucose = __glucose_synthesis()
-    glucose.summary()
-    glucose.draw_compound()
+    # print("\nC6H12O6 Syntehesis")
+    # glucose = __glucose_synthesis()
+    # glucose.summary()
+    # glucose.draw_compound()
 
-    print("\nAmonia oxidation NH3 + OH -> NH2 + H2O")
-    ammonia = __ammonia_synthesis()
-    oh = Compound.from_formula("OH", 2000)
-    energy_before = oh.remaining_energy + ammonia.remaining_energy
-    print(f"Total energy before: {energy_before}")
-    ammonia_oxidation = Compound.synthesize(oh, ammonia, 0, break_bonds_b=[1])
-    print(f"Total energy after: {ammonia_oxidation.remaining_energy}")
-    print(f"Reaction enthalpy = {energy_before - ammonia_oxidation.remaining_energy}")
-    ammonia_oxidation.summary()
-    ammonia_oxidation.draw_compound()
-
-    products = ammonia_oxidation.split_compounds()
-    print(products)
-    for comp in products:
-        comp.summary()
-        comp.draw_compound()
+    # ammonia = __ammonia_synthesis()
+    # oh = Compound.from_formula("OH", 0)
+    # energy_before = oh.remaining_energy + ammonia.remaining_energy
+    # ammonia_oxidation = Compound.synthesize(oh, ammonia, 0, break_bonds_b=[0])
+    #
+    # print("\nAmonia oxidation NH3 + OH -> NH2 + H2O")
+    # ammonia_oxidation.summary()
+    # ammonia_oxidation.draw_compound()
+    #
+    # print(f"Total energy before: {energy_before}")
+    # print(f"Total energy after: {ammonia_oxidation.remaining_energy}")
+    # print(f"Reaction enthalpy = {energy_before - ammonia_oxidation.remaining_energy}")
+    #
+    # products = ammonia_oxidation.split_compounds()
+    # for comp in products:
+    #     comp.summary()
+    #     comp.draw_compound()
