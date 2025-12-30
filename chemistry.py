@@ -660,34 +660,77 @@ def __ammonia_synthesis() -> Compound:
     # Example synthesis of ammonia NH3
     return Compound.from_formula("NH3", 0)
 
-if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
-    ch.setLevel(logging.DEBUG)
-
-    print("C2H6 Syntehesis")
+def __etane_example():
+    print("\n\n *===== Ethane Synthesis =====* ")
     ethane = __ethane_synthesis()
     ethane.summary()
     ethane.draw_compound()
 
-    # print("\nC6H12O6 Syntehesis")
-    # glucose = __glucose_synthesis()
-    # glucose.summary()
-    # glucose.draw_compound()
+def __glucose_example():
+    print("\n\n *===== Glucose Syntehesis =====*")
+    glucose = __glucose_synthesis()
+    glucose.summary()
+    glucose.draw_compound()
 
-    # ammonia = __ammonia_synthesis()
-    # oh = Compound.from_formula("OH", 0)
-    # energy_before = oh.remaining_energy + ammonia.remaining_energy
-    # ammonia_oxidation = Compound.synthesize(oh, ammonia, 0, break_bonds_b=[0])
-    #
-    # print("\nAmonia oxidation NH3 + OH -> NH2 + H2O")
-    # ammonia_oxidation.summary()
-    # ammonia_oxidation.draw_compound()
-    #
-    # print(f"Total energy before: {energy_before}")
-    # print(f"Total energy after: {ammonia_oxidation.remaining_energy}")
-    # print(f"Reaction enthalpy = {energy_before - ammonia_oxidation.remaining_energy}")
-    #
-    # products = ammonia_oxidation.split_compounds()
-    # for comp in products:
-    #     comp.summary()
-    #     comp.draw_compound()
+def __ammonia_oxidation_example():
+    print("\n\n *===== Amomonia Oxidation =====*")
+
+    ammonia = __ammonia_synthesis()
+    oh = Compound.from_formula("OH", 0)
+
+    energy_before = oh.remaining_energy + ammonia.remaining_energy
+    ammonia_oxidation = Compound.synthesize(oh, ammonia, 0, break_bonds_b=[0])
+
+    print("\nReactant A")
+    ammonia.summary()
+    ammonia.draw_compound()
+
+    print("\nReactant B")
+    oh.summary()
+    oh.draw_compound()
+
+    print("\n\n Reaction NH3 + OH -> NH2 + H2O")
+    ammonia_oxidation.summary()
+    ammonia_oxidation.draw_compound()
+
+    products = ammonia_oxidation.split_compounds()
+    for i, comp in enumerate(products):
+        print(f"\n{i}. Product")
+        comp.summary()
+        comp.draw_compound()
+
+    print(f"\n\nTotal energy before: {energy_before}")
+    print(f"Total energy after: {ammonia_oxidation.remaining_energy}")
+    print(f"Reaction enthalpy = {energy_before - ammonia_oxidation.remaining_energy}")
+
+def __carbic_acid_synthesis_example():
+    print("\n\n *===== Carbic Acid Synthesis (with induced bond breaking) =====*")
+    co2 = Compound.from_formula("CO2", 0)
+    h2o = Compound.from_formula("HOH", 0)
+
+    carbic_acid = Compound.synthesize(co2, h2o, 0, break_bonds_a=[0], break_bonds_b=[0])
+
+    print("\nReactant A")
+    co2.summary()
+    co2.draw_compound()
+
+    print("\nReactant B")
+    h2o.summary()
+    h2o.draw_compound()
+
+    print("\n\n H2O + CO2 -> H2CO3 (with induced bond breaking)")
+    carbic_acid.summary()
+    carbic_acid.draw_compound()
+
+
+if __name__ == "__main__":
+    logger.setLevel(logging.DEBUG)
+    ch.setLevel(logging.DEBUG)
+
+    # Example reactions handled by this module
+
+    __etane_example()
+    __glucose_example()
+    __ammonia_oxidation_example()
+    __carbic_acid_synthesis_example()
+
