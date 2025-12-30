@@ -91,6 +91,54 @@ class Bond:
     def __repr__(self):
         return f"{self.component_A.symbol:>2s}{['-', '=', '≡'][self.multiplicity - 1]}{self.component_B.symbol:2s} Energy: {self.energy} kJ/mol"
 
+    def decrease_mult(self) -> Tuple[int, bool]:
+        """
+        Decrease bond multiplity
+        :return:
+        energy_difference: int
+        was_broken: bool
+        """
+        if self.multiplicity == 1:
+            return self.energy, True
+
+        self.multiplicity -= 1
+        old_energy = self.energy
+        self.energy = Bond.BondEnergy[self.multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
+        return abs(old_energy-self.energy), False
+
+    def increase_mult(self) -> Tuple[int, bool]:
+        """
+        Increase bond multiplicity
+
+        :return:
+        energy_difference: int
+        was_increased: bool
+        """
+        try:
+            self.multiplicity += 1
+            old_energy = self.energy
+            self.energy = Bond.BondEnergy[self.multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
+            return abs(old_energy-self.energy), True
+        except KeyError:
+            return 0, False
+
+    @property
+    def next_multiplicity_energy_difference(self) -> int:
+        try:
+            old_energy = self.energy
+            new_energy = Bond.BondEnergy[self.multiplicity+1][f'{self.component_A.symbol}-{self.component_B.symbol}']
+            return abs(old_energy - self.energy)
+        except KeyError:
+            return -1
+
+    @property
+    def previous_multiplicity_energy_difference(self) -> int:
+        if self.multiplicity == 1:
+            return self.energy
+        old_energy = self.energy
+        new_energy = Bond.BondEnergy[self.multiplicity-1][f'{self.component_A.symbol}-{self.component_B.symbol}']
+        return abs(old_energy - self.energy)
+
     @staticmethod
     def get_bond_energy(symbol_a: str, symbol_b: str, multiplicity: int) -> Optional[int]:
         if symbol_a > symbol_b:
@@ -197,16 +245,18 @@ class Compound:
         comp_b_bonds = [(comp_b.bonds[i], comp_b, i) for i in bond_idx_b]
         bonds = comp_a_bonds + comp_b_bonds
 
-        sorted_bond_energies = sorted(bonds, key=lambda x: x[0][0].energy)
+        sorted_bond_energies = sorted(bonds, key=lambda x: x[0][0].previous_multiplicity_energy_difference)
         for comp_bond, compound, idx in sorted_bond_energies:
             bond, i, j = comp_bond
 
-            yield bond.energy
+            yield bond.previous_multiplicity_energy_difference
             yield 0
 
+            _, broke = bond.decrease_mult()
             compound.components[i].cov_electrons -= bond.multiplicity
             compound.components[j].cov_electrons -= bond.multiplicity
-            del compound.bonds[idx]
+            if broke:
+                del compound.bonds[idx]
             compound.stable = all(comp.cov_electrons >= comp.optimal_electrons for comp in compound.components)
 
     @staticmethod
