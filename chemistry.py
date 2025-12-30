@@ -491,10 +491,10 @@ class Compound:
                             mult
                         )
 
-                        if energy and energy_released + energy <= self.remaining_energy:
+                        if energy:
                             # Score: prioritize satisfying electron needs
                             satisfaction = mult / need_i + mult / need_j
-                            score = satisfaction * 1000 - energy
+                            score = energy + satisfaction
 
                             if score > best_bridge_score:
                                 best_bridge_score = score
@@ -545,8 +545,8 @@ class Compound:
                     satisfaction = mult / need_i + mult / need_j
                     bonds.append((i, j, mult, energy, satisfaction))
 
-        # Sort by satisfaction (higher is better), then by energy (lower is better)
-        bonds.sort(key=lambda x: (-x[4], x[3]))
+        # Sort by  energy (higher is better), then by satisfaction (higher is better),
+        bonds.sort(key=lambda x: (-x[3], -x[4]))
 
         logger.info(f"Found {len(bonds)} additional possible bonds")
 
