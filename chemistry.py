@@ -18,6 +18,13 @@ class Atom:
     class AtomNotDefined(Exception):
         pass
 
+    atoms_electronegativity = {
+        'H': 2.20,
+        'C': 2.55,
+        'N': 3.04,
+        'O': 3.44,
+    }
+
     basic_atoms: Dict[str, Dict] = {
         'H': {'mass': 2, 'symbol': 'H', 'electrons_in_covalence': 1, 'optimal_electrons': 2},
         'C': {'mass': 12, 'symbol': 'C', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
@@ -31,6 +38,24 @@ class Atom:
         self.symbol: str = symbol
         self.cov_electrons: int = electrons_in_covalence
         self.optimal_electrons: int = optimal_electrons
+        self.partial_charge: float = 0.0
+
+    def __repr__(self):
+        status = "✓" if self.cov_electrons >= self.optimal_electrons else "✗"
+        charge_str = f" δ= {self.partial_charge:+.2f}" if abs(self.partial_charge) > 0.01 else ""
+        radical_str = "•" if self.is_radical else " "
+        return f'{self.symbol:>2s}{radical_str} | Mass: {self.mass:5.2f} | Electrons: {self.cov_electrons:2d}/{self.optimal_electrons:2d} ({status}) |  Partial Charge: {charge_str}'
+
+    @property
+    def is_radical(self):
+        return self.cov_electrons % 2 == 1
+
+    @property
+    def electronegativity(self) -> float:
+        try:
+            return Atom.atoms_electronegativity[self.symbol]
+        except KeyError:
+            raise Atom.AtomNotDefined
 
     @property
     def electrons_needed(self) -> int:
@@ -54,6 +79,9 @@ class Bond:
     Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
     """
     class BondNotDefinedError(Exception):
+        pass
+
+    class AtomNotInBond(Exception):
         pass
 
     BondEnergy = {
@@ -87,9 +115,45 @@ class Bond:
             self.energy = Bond.BondEnergy[multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
         except KeyError:
             raise Bond.BondNotDefinedError
+        self.strain: float = 0.0
 
     def __repr__(self):
-        return f"{self.component_A.symbol:>2s}{['-', '=', '≡'][self.multiplicity - 1]}{self.component_B.symbol:2s} Energy: {self.energy} kJ/mol"
+        left_polar = '<' if self.polar_to_A else ' '
+        right_polar = '>' if self.polar_to_B else ' '
+        return f"{self.component_A.symbol:>2s}{left_polar}{['-', '=', '≡'][self.multiplicity - 1]}{right_polar}{self.component_B.symbol:2s} | Polarity {self.polarity:3.2f} | Energy: {self.energy} ({self.effective_energy})kJ/mol"
+
+    @property
+    def effective_energy(self) -> int:
+        # TODO: Implement better function to get strained energy
+        return round(self._strain_effect * self.energy)
+
+    @property
+    def _strain_effect(self) -> float:
+        return 1.0 - (min(self.strain, 0.4) * min(self.polarity / 1.7, 1.2))
+
+    @property
+    def polarity(self) -> float:
+        """
+        Positive values mean polarity in direction of Atom A - negative Atom B
+        """
+        return abs(self.component_A.electronegativity - self.component_B.electronegativity)
+
+    @property
+    def polar_to_A(self) -> bool:
+        return (self.component_A.electronegativity - self.component_B.electronegativity) > 0
+
+    @property
+    def polar_to_B(self) -> bool:
+        return (self.component_B.electronegativity - self.component_A.electronegativity) > 0
+
+    def comp_polarity(self, atom_symbol: str):
+        if atom_symbol.upper() not in [self.component_A.symbol, self.component_B.symbol]:
+            raise Bond.AtomNotInBond
+
+        if atom_symbol == self.component_A.symbol:
+            return -self.polarity if self.polar_to_A else self.polarity
+        else:
+            return -self.polarity if self.polar_to_B else self.polarity
 
     def decrease_mult(self) -> Tuple[int, bool]:
         """
@@ -99,12 +163,12 @@ class Bond:
         was_broken: bool
         """
         if self.multiplicity == 1:
-            return self.energy, True
+            return self.effective_energy, True
 
         self.multiplicity -= 1
-        old_energy = self.energy
+        old_energy = self.effective_energy
         self.energy = Bond.BondEnergy[self.multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
-        return abs(old_energy-self.energy), False
+        return abs(old_energy-self.effective_energy), False
 
     def increase_mult(self) -> Tuple[int, bool]:
         """
@@ -116,28 +180,28 @@ class Bond:
         """
         try:
             self.multiplicity += 1
-            old_energy = self.energy
+            old_energy = self.effective_energy
             self.energy = Bond.BondEnergy[self.multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
-            return abs(old_energy-self.energy), True
+            return abs(old_energy-self.effective_energy), True
         except KeyError:
             return 0, False
 
     @property
     def next_multiplicity_energy_difference(self) -> int:
         try:
-            old_energy = self.energy
+            old_energy = self.effective_energy
             new_energy = Bond.BondEnergy[self.multiplicity+1][f'{self.component_A.symbol}-{self.component_B.symbol}']
-            return abs(old_energy - self.energy)
+            return abs(old_energy - round(new_energy*self._strain_effect))
         except KeyError:
             return -1
 
     @property
     def previous_multiplicity_energy_difference(self) -> int:
         if self.multiplicity == 1:
-            return self.energy
-        old_energy = self.energy
+            return self.effective_energy
+        old_energy = self.effective_energy
         new_energy = Bond.BondEnergy[self.multiplicity-1][f'{self.component_A.symbol}-{self.component_B.symbol}']
-        return abs(old_energy - self.energy)
+        return abs(old_energy - round(new_energy*self._strain_effect))
 
     @staticmethod
     def get_bond_energy(symbol_a: str, symbol_b: str, multiplicity: int) -> Optional[int]:
@@ -189,12 +253,38 @@ class Compound:
     def is_connected(self) -> bool:
         return len(self.connection_graphs) == 1
 
-    @staticmethod
-    def atom(atom_symbol:str, provided_energy:int = 0) -> Compound:
-        return Compound([Atom.get(atom_symbol)], provided_energy=provided_energy)
+    @property
+    def reactive_sites(self) -> Dict[ReactiveSite.Character, List[ReactiveSite]]:
+        return {
+            ReactiveSite.Character.electrophilic: sorted([
+                ReactiveSite(i, abs(atom.partial_charge), ReactiveSite.Character.electrophilic) for i, atom in
+                enumerate(self.components) if atom.partial_charge > 0],
+                key=lambda x: x.value
+            ),
+            ReactiveSite.Character.neutrophilic: sorted([
+                ReactiveSite(i, abs(atom.partial_charge), ReactiveSite.Character.neutrophilic) for i, atom in
+                enumerate(self.components) if atom.partial_charge < 0],
+                key=lambda x: x.value
+            ),
+        }
 
-    def __repr__(self):
-        return f'{self.symbol:12s} | STABLE: {self.stable} | Mass: {self.mass:4.2f} | Energy remaining: {self.remaining_energy:8.2f} kJ/mol'
+    @property
+    def most_reactive_site(self) -> ReactiveSite | None:
+        if not self.is_reactive:
+            return None
+        max_val = 0
+        most_reactive_site = None
+        for character in ReactiveSite.Character:
+            reactive_sites = self.reactive_sites[character]
+            site = reactive_sites[0]
+            if site.value > max_val:
+                max_val = site.value
+                most_reactive_site = site
+        return most_reactive_site
+
+    @property
+    def is_reactive(self) -> bool:
+        return all(self.reactive_sites.values())
 
     def summary(self):
         print('*', '=' * 80, '*')
@@ -232,6 +322,35 @@ class Compound:
 
 
         plt.show()
+
+    def dissipate_energy(self, energy_percent: float = 1.0) -> int:
+        energy_dissipated = round(self.remaining_energy * energy_percent)
+        self.remaining_energy -= energy_dissipated
+        return energy_dissipated
+
+    def split_compounds(self) -> List[Compound]:
+        compounds = []
+        for sub_graph in self.connection_graphs:
+            components = [self.components[i] for i in sub_graph]
+            scale = {comp: i for comp, i in zip(sub_graph, range(len(sub_graph)))}
+            bonds = [(bond,scale[i],scale[j]) for bond, i, j in self.bonds if i in sub_graph or j in sub_graph]
+            energy = round(self.remaining_energy * (sum([self.components[comp].mass for comp in sub_graph]) / self.mass))  # divide energy based on mass
+
+            compounds.append(Compound(components, provided_energy=energy))
+            compounds[-1].bonds = bonds
+
+        return compounds
+
+    def update_partial_charges(self):
+        for i, comp in enumerate(self.components):
+            comp.partial_charge = sum([
+                bond.comp_polarity(comp.symbol)
+                for bond, a, b in self.bonds if a == i or b == i
+            ])
+
+    @staticmethod
+    def atom(atom_symbol:str, provided_energy:int = 0) -> Compound:
+        return Compound([Atom.get(atom_symbol)], provided_energy=provided_energy)
 
     @staticmethod
     def break_bonds(comp_a: Compound, bond_idx_a: List[int], comp_b: Compound, bond_idx_b: List[int]) -> Generator[int]:
