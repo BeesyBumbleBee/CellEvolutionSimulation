@@ -68,10 +68,6 @@ class Atom:
         except KeyError:
             raise Atom.AtomNotDefined
 
-    def __repr__(self):
-        status = "✓" if self.cov_electrons >= self.optimal_electrons else "✗"
-        return f'{self.symbol:2s} Mass: {self.mass:5.2f} Electrons: {self.cov_electrons:2d}/{self.optimal_electrons:2d} ({status})'
-
 
 class Bond:
     """
@@ -236,7 +232,13 @@ class Compound:
 
         self.optimal_electrons = sum([x.optimal_electrons for x in components])
         self.electrons = sum([x.cov_electrons for x in self.components])
-        self.stable = self.optimal_electrons == self.electrons
+
+    def __repr__(self):
+        return f'{self.symbol:12s} | STABLE: {self.stable} | Mass: {self.mass:6.2f} | Energy remaining: {self.remaining_energy:8.2f} kJ/mol'
+
+    @property
+    def stable(self) -> bool:
+        return all([x.electrons_needed == 0 for x in self.components])
 
     @property
     def graph(self) -> nx.Graph:
@@ -291,31 +293,39 @@ class Compound:
         print(f"{self} \nStructure:")
         print(f"Atoms ({len(self.components)}):")
         for i, comp in enumerate(self.components):
-            print(f"  [{i}] {comp}")
+            print(f"  [{i:2d}] {comp}")
 
         print(f"\nBonds ({len(self.bonds)}):")
         for i, bond in enumerate(self.bonds):
             print(
-                f"  [{i}] {bond[0]} kJ/mol)")
+                f"  [{i:2d}] {bond[0]} kJ/mol)")
         print('*', '=' * 80, '*')
 
     def draw_compound(self):
         import matplotlib.pyplot as plt
 
-        single = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 1])
-        double = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 2])
-        triple = list([[f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$'] for bond, i, j in self.bonds if bond.multiplicity >= 3])
+
+        single = list([(f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$', {'weight': bond.energy / 100}) for bond, i, j in self.bonds if bond.multiplicity >= 1])
+        double = list([(f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$', {'weight': bond.energy / 100}) for bond, i, j in self.bonds if bond.multiplicity >= 2])
+        triple = list([(f'${self.components[i].symbol}_'+'{'f'{i}'+'}$', f'${self.components[j].symbol}_'+'{'f'{j}'+'}$', {'weight': bond.energy / 100}) for bond, i, j in self.bonds if bond.multiplicity >= 3])
+
+        nucleophiles = [f'${self.components[i].symbol}_'+'{'f'{i}'+'}$' for i in range(len(self.components)) if self.components[i].partial_charge < 0]
+        electrophiles = [f'${self.components[i].symbol}_'+'{'f'{i}'+'}$' for i in range(len(self.components)) if self.components[i].partial_charge > 0]
+        neutral = [f'${self.components[i].symbol}_'+'{'f'{i}'+'}$' for i in range(len(self.components)) if self.components[i].partial_charge == 0]
 
         graph = nx.Graph()
         graph.add_nodes_from([f'${self.components[i].symbol}_'+'{'f'{i}'+'}$' for i in range(len(self.components))])
         graph.add_edges_from(single)
         graph.add_edges_from(double)
         graph.add_edges_from(triple)
-        pos = nx.spring_layout(graph, seed=42)
-        nx.draw_networkx_nodes(graph, pos, node_size=600, node_color='white', edgecolors="black")
+        pos = nx.spring_layout(graph, seed=42, k=2.0, iterations=1000)
+        nx.draw_networkx_nodes(graph, pos, node_size=450, node_color='white', edgecolors="black", nodelist=neutral)
+        nx.draw_networkx_nodes(graph, pos, node_size=450, node_color='white', edgecolors="red", nodelist=nucleophiles)
+        nx.draw_networkx_nodes(graph, pos, node_size=450, node_color='white', edgecolors="blue", nodelist=electrophiles)
         nx.draw_networkx_labels(graph, pos, font_size=10)
         nx.draw_networkx_edges(graph, pos, arrows=True,edgelist=single, connectionstyle='arc3, rad = 0.1')
-        nx.draw_networkx_edge_labels(graph, pos, edge_labels={tuple(edge): f'{i}' for i, edge in enumerate(single)})
+        nx.draw_networkx_edge_labels(graph, pos, edge_labels={tuple(edge[:2]): f'{i}' for i, edge in enumerate(single)},
+                                     font_size=8, font_color='gray', rotate=False, bbox=dict(facecolor='white', alpha=0.3, edgecolor='white'),label_pos=0.5)
 
         nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=double, connectionstyle='arc3, rad = 0.25')
         nx.draw_networkx_edges(graph, pos,arrows=True, edgelist=triple, connectionstyle='arc3, rad = 0.4')
