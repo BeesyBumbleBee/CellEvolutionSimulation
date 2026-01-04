@@ -25,12 +25,11 @@ class Simulation:
         return len([x for x in self.cells if x.alive])
 
     def setup_environment(self, sources: Dict[str, int] = None):
-
         if sources is None:
             sources = {
                 'energy': 2,
-                'co2': 3,
-                'n2': 3,
+                'co2': 1,
+                'n2': 1,
             }
 
         for source_type, source_number in sources.items():
@@ -44,37 +43,23 @@ class Simulation:
                     source_type=source_type,
                 )
 
-    def random_genome(self):
-        num_reactants = int(self.rng.integers(low=2, high=4))
-        num_rules = int(self.rng.integers(low=1, high=6))
-        rules = [
-            ReactionRule(
-                num_reactants=num_reactants,
-                possible_reactants=[PossibleReactant(self.rng.choice(list(Atom.basic_atoms.keys())))
-                     for _ in range(num_reactants)],
-                use_energy=int(self.rng.integers(0, 200)),
-                priority=round(self.rng.uniform(low=0.5, high=2.0), 2)
-            ) for _ in range(num_rules)
-        ]
-
-        return Genome(rules=sorted(rules, key=lambda r: r.priority))
-
     def populate_environment(self, num_cells: int = 10):
+        Protocell.rng = self.rng
         for _ in range(num_cells):
             self.cells.append(
                 Protocell(
                     x=int(self.rng.integers(low=0, high=self.env.width)),
                     y=int(self.rng.integers(low=0, high=self.env.height)),
-                    genome=self.random_genome(),
-                    initial_energy=self.rng.normal(loc=1000.0, scale=50.0),
+                    genome=Genome.get_random(rng=self.rng),
+                    initial_energy=self.rng.normal(loc=1200.0, scale=50.0),
                     )
             )
 
     def reproduce_cell(self, cell: Protocell):
-        new_genome = cell.genome.mutate()
+        new_genome = cell.genome.get_mutated(rng=self.rng)
         initial_energy = cell.reproduction_cost
-        x = self.rng.choice([x for x in [cell.x-1, cell.x+1] if 0 < x < self.env.width])
-        y = self.rng.choice([y for y in [cell.y-1, cell.y+1] if 0 < y < self.env.height])
+        x = self.rng.choice([x for x in [cell.x-1, cell.x, cell.x+1] if 0 < x < self.env.width])
+        y = self.rng.choice([y for y in [cell.y-1, cell.y, cell.y+1] if 0 < y < self.env.height])
         self.cells.append(
             Protocell(
                 x=x,
@@ -83,7 +68,11 @@ class Simulation:
                 initial_energy=initial_energy,
             )
         )
+        self.cells[-1].generation = cell.generation + 1
 
+    def update_history(self):
+        self.history['time'].append(self.time)
+        self.history['population'].append(self.population)
 
     def step(self):
         self.env.step()
@@ -92,7 +81,7 @@ class Simulation:
             if cell.can_reproduce:
                 self.reproduce_cell(cell)
 
-
+        self.update_history()
         self.time += 1
 
     def visualize(self):
@@ -104,18 +93,21 @@ class Simulation:
                 ax.plot(cell.x, cell.y, '.', markersize=1)
 
         plt.show()
+        print(f"Population: {self.population}")
 
-        for cell in self.cells:
-            print(cell.summary())
-        print("\n\n")
+        # for cell in self.cells:
+        #     print(cell.summary())
+        # print("\n\n")
 
     def run(self, steps: int = 100, visualize_steps: int = 0):
         for i in range(steps):
-            self.step()
             if visualize_steps > 0 and (i % visualize_steps == 0 or i == steps - 1):
                self.visualize()
+
+            self.step()
 
             if self.population <= 0:
                 print(f"Extinction! at time step {self.time}")
                 break
-
+        for alive_cell in [x for x in self.cells if x.alive]:
+            print(alive_cell.summary())

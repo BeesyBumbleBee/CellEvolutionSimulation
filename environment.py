@@ -9,8 +9,11 @@ import numpy as np
 
 class SourceType(StrEnum):
     energy = "energy"
-    n2 = "N2"
-    co2 = "C1O2"
+    # n2 = "N2"
+    # co2 = "C1O2"
+    # n1 = 'N1'
+    # h2 = 'H2'
+    # c1 = 'C1'
 
 
 @dataclass
@@ -44,7 +47,12 @@ class Environment:
         }
 
         self.ambient_compounds: Dict[str, np.ndarray] = {
-            'H2O1': np.ones((height, width)) * 5
+            'H2O1': np.ones((height, width)) * 3,
+            # 'O2': np.ones((height, width)) * 1,
+            'N1' : np.ones((height, width)) * 1,
+            'H2': np.ones((height, width)) * 1,
+            'C1': np.ones((height, width)) * 1,
+
         }
 
         self.sources: List[Source] = []
@@ -85,11 +93,11 @@ class Environment:
             return {}
 
         compounds = {
-            str(compound.upper()): val[x, y] for compound, val in self.grids.items() if compound != SourceType.energy
+            str(compound.upper()): val[y, x] for compound, val in self.grids.items() if compound != SourceType.energy
         }
 
         for ambient_compound in self.ambient_compounds.keys():
-            compounds[str(ambient_compound.upper())] = self.ambient_compounds[ambient_compound][x, y]
+            compounds[str(ambient_compound.upper())] = self.ambient_compounds[ambient_compound][y, x]
 
         return compounds
 
@@ -108,8 +116,8 @@ class Environment:
                 ]
                 continue
             compounds[compound_formula] *= percent
-            self.grids[compound_formula][x, y] -= compounds[compound_formula]
-            extracted_compounds[compound_formula] = [self._get_compound(compound_formula, self.get_temperature_at(x, y)), compounds[compound_formula]]
+            self.grids[compound_formula][y, x] -= compounds[compound_formula]
+            extracted_compounds[compound_formula] = [self._get_compound(compound_formula, self.get_temperature_at(x, y) // 10), compounds[compound_formula]]
         return extracted_compounds
 
     def get_temperature_at(self, x: int, y: int):
@@ -174,7 +182,7 @@ class Environment:
             #plt.colorbar(im1, ax=axes, label=f'{source_type.title()}')
 
             for source in [src for src in self.sources if src.type == source_type]:
-                axes[i].plot(source.x, source.y, 'x', markersize=3)
+                axes[i].plot(source.x, source.y, 'x', markersize=8)
                 # circle = plt.Circle((source.x, source.y), source.radius,
                 #                     fill=False, color='blue', linestyle='--')
                 # axes[i].add_patch(circle)
