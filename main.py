@@ -8,8 +8,9 @@ def test_sim():
         'n2': 2,
     }
     sim.setup_environment(sources)
+    sim.populate_environment(30)
 
-    sim.run(100, 10)
+    sim.run(400, 50)
 
 
 

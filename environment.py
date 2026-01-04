@@ -20,6 +20,7 @@ class Source:
     intensity: float
     radius: int
     type: SourceType
+    mask: np.ndarray
 
     def get_value_at(self, target_x: int, target_y: int) -> float:
         distance = np.sqrt((self.x - target_x)**2 + (self.y - target_y)**2)
@@ -31,12 +32,6 @@ class Source:
 
 
 class Environment:
-
-    def _get_compound(self, formula: str, temperature: float) -> Compound:
-        compound = Compound.from_formula(formula)
-        compound.remaining_energy = round(temperature)
-        return compound
-
     def __init__(self, width: int, height: int, ambient_temperature: float = 298.0):
         self.width: int = width
         self.height: int = height
@@ -60,9 +55,14 @@ class Environment:
     def ambient_temperature_grid(self) -> np.ndarray:
         return np.asarray([[self.ambient_temperature for w in range(self.width)] for h in range(self.height)], dtype=np.float64)
 
+    def _get_compound(self, formula: str, temperature: float) -> Compound:
+        compound = Compound.from_formula(formula)
+        compound.remaining_energy = round(temperature)
+        return compound
+
     def step(self):
         self._update_grid()
-        self.diffuse_grids(0.9)
+        self.diffuse_grids(0.4)
         self._update_temperature_grid()
         self.time_step += 1
 
@@ -72,8 +72,12 @@ class Environment:
         return 0.0
 
     def extract_energy_from(self, x: int, y: int, percent: float = 1.0) -> float:
-        extracted = self.get_energy_at(x,y) * percent
-        self.grids[SourceType.energy][x, y] -= extracted
+        energy_at = self.get_energy_at(x,y)
+        extracted = energy_at * percent
+        if energy_at <= extracted or extracted < 0:
+            self.grids[SourceType.energy][y, x] = 0
+            return energy_at
+        self.grids[SourceType.energy][y, x] -= extracted
         return extracted
 
     def get_compounds_at(self, x:int, y:int) -> Dict[str, float]:
@@ -130,21 +134,29 @@ class Environment:
                             new_grid[y, x] -= amount
                             for ny, nx in neighbors:
                                 new_grid[ny, nx] += per_neighbor
-
             self.grids[source_type] = new_grid
 
+    def _create_source_mask(self, x:int, y:int, intensity:float ,radius:int) -> np.ndarray:
+        y_coords = np.arange(self.height)
+        x_coords = np.arange(self.width)
+        x_grid, y_grid = np.meshgrid(x_coords, y_coords)
+
+        distances = np.sqrt((x_grid - x) ** 2 + (y_grid - y) ** 2)
+        disc = (distances <= radius).astype(int)
+        return disc * intensity
+
     def add_source(self, x:int, y:int, intensity:float, radius: int, source_type: SourceType = SourceType.energy):
-        source = Source(x, y, intensity, radius, source_type)
+        source = Source(x, y, intensity, radius, source_type, self._create_source_mask(x,y,intensity,radius))
         self.sources.append(source)
         self._update_grid()
         self._update_temperature_grid()
 
     def _update_grid(self):
         for source in self.sources:
-            self.grids[source.type] += np.asarray([[source.get_value_at(x, y) for x in range(self.width)] for y in range(self.height)])
+            self.grids[source.type] += source.mask
 
     def _update_temperature_grid(self):
-        self.temperature_grid = np.add(self.ambient_temperature_grid, self.grids[SourceType.energy] // 100)
+        self.temperature_grid = np.add(self.ambient_temperature_grid, self.grids[SourceType.energy] // 10)
 
     def visualize(self):
         """Create visualization of environment state"""
@@ -159,7 +171,7 @@ class Environment:
             #plt.colorbar(im1, ax=axes, label=f'{source_type.title()}')
 
             for source in [src for src in self.sources if src.type == source_type]:
-                axes[i].plot(source.x, source.y, 'x', markersize=4)
+                axes[i].plot(source.x, source.y, 'x', markersize=3)
                 # circle = plt.Circle((source.x, source.y), source.radius,
                 #                     fill=False, color='blue', linestyle='--')
                 # axes[i].add_patch(circle)
@@ -172,22 +184,22 @@ class Environment:
 
         fig.tight_layout()
 
-        return fig
+        return fig, axes
 
 
 if __name__ == "__main__":
     env = Environment(width=64, height=64)
-    env.add_source(x=np.random.randint(20,50), y=np.random.randint(20,50), intensity=np.random.uniform(10.0, 200.0), radius=np.random.randint(1, 3), source_type=SourceType.energy)
+    env.add_source(x=5, y=5, intensity=200.0, radius=3, source_type=SourceType.energy)
+    env.add_source(x=5, y=5, intensity=200.0, radius=3, source_type=SourceType.energy)
     env.add_source(x=10, y=10, intensity=0.5, radius=1, source_type=SourceType.co2)
 
     for x in range(500):
         env.step()
         compounds_extracted = env.extract_compounds_from(5, 5, 1.0)
-        print(compounds_extracted)
+        compounds_extracted = env.extract_energy_from(5, 5, 0.7)
+        compounds_extracted = env.extract_energy_from(5, 5, 0.7)
         if x % 100 == 0:
             fig = env.visualize()
             plt.show()
     fig = env.visualize()
     plt.show()
-
-    print()
