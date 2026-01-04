@@ -10,7 +10,7 @@ import numpy as np
 class SourceType(StrEnum):
     energy = "energy"
     n2 = "N2"
-    co2 = "CO2"
+    co2 = "C1O2"
 
 
 @dataclass
@@ -44,7 +44,7 @@ class Environment:
         }
 
         self.ambient_compounds: Dict[str, np.ndarray] = {
-            'H2O': np.ones((height, width))
+            'H2O1': np.ones((height, width)) * 5
         }
 
         self.sources: List[Source] = []
@@ -85,28 +85,31 @@ class Environment:
             return {}
 
         compounds = {
-            compound: val[x, y] for compound, val in self.grids.items() if compound != SourceType.energy
+            str(compound.upper()): val[x, y] for compound, val in self.grids.items() if compound != SourceType.energy
         }
 
         for ambient_compound in self.ambient_compounds.keys():
-            compounds[ambient_compound] = self.ambient_compounds[ambient_compound][x, y]
+            compounds[str(ambient_compound.upper())] = self.ambient_compounds[ambient_compound][x, y]
 
         return compounds
 
-    def extract_compounds_from(self, x:int, y:int, percent:float) -> Dict[str, Tuple[Compound, float]]:
+    def extract_compounds_from(self, x:int, y:int, percent:float) -> Dict[str, List[Compound | float]]:
         if 0 > percent:
             percent = 0.0
         if percent > 1.0:
             percent = 1.0
 
         compounds = self.get_compounds_at(x, y)
-        extracted_compounds = {}
+        extracted_compounds: Dict[str, List[Compound | float]] = {}
         for compound_formula in compounds.keys():
             if compound_formula in self.ambient_compounds.keys():
+                extracted_compounds[compound_formula] = [
+                    self._get_compound(compound_formula, self.get_temperature_at(x, y)), compounds[compound_formula]
+                ]
                 continue
             compounds[compound_formula] *= percent
             self.grids[compound_formula][x, y] -= compounds[compound_formula]
-            extracted_compounds[compound_formula] = (self._get_compound(compound_formula, self.get_temperature_at(x, y)), compounds[compound_formula])
+            extracted_compounds[compound_formula] = [self._get_compound(compound_formula, self.get_temperature_at(x, y)), compounds[compound_formula]]
         return extracted_compounds
 
     def get_temperature_at(self, x: int, y: int):
@@ -196,8 +199,7 @@ if __name__ == "__main__":
     for x in range(500):
         env.step()
         compounds_extracted = env.extract_compounds_from(5, 5, 1.0)
-        compounds_extracted = env.extract_energy_from(5, 5, 0.7)
-        compounds_extracted = env.extract_energy_from(5, 5, 0.7)
+        energy_extracted = env.extract_energy_from(5, 5, 0.7)
         if x % 100 == 0:
             fig = env.visualize()
             plt.show()

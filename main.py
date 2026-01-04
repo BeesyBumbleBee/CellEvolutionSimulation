@@ -1,14 +1,14 @@
 from simulation import Simulation
 
 def test_sim():
-    sim = Simulation(32, 32)
+    sim = Simulation(8, 8)
     sources = {
         'energy': 1,
         'co2': 2,
-        'n2': 2,
+        'n2': 1,
     }
     sim.setup_environment(sources)
-    sim.populate_environment(30)
+    sim.populate_environment(1)
 
     sim.run(400, 50)
 
