@@ -175,7 +175,7 @@ class Protocell:
         self.genome = genome
         self.energy = initial_energy
 
-        self.compounds: Dict[str, List[Compound | float]] = {}
+        self.compounds: List[Compound] = []
 
         self.age = 0
         self.alive = True
@@ -189,6 +189,20 @@ class Protocell:
         self.energy_from_environment = 0.0
         self.energy_from_reactions = 0.0
         self.energy_from_decomposition = 0.0
+        self.reactions_count: Dict[str, int] = {}
+        self.children = 0
+        self.parent: str = ""
+
+    @property
+    def unique_compounds(self) -> Dict[str, Tuple[Compound, int]]:
+        return {
+            compound.symbol:
+                (
+                    compound,
+                    len([x for x in self.compounds if x.__hash__() == compound.__hash__()])
+                )
+                for compound in self.compounds
+        }
 
     def __repr__(self):
         return f'Cell-{self.id:<4d} (x={self.x:<3d}, y={self.y:<3d}): Age: {self.age:4d} | Gen: {self.generation:2d} | Energy: {self.energy:8.2f} | ALIVE: {self.alive}'
@@ -249,61 +263,49 @@ class Protocell:
         if absorption_rate < 0.0:
             absorption_rate = 0.0
 
-        absorbed = env.extract_compounds_from(self.x, self.y, absorption_rate)
-        self.add_compounds(absorbed)
-
-    def add_compounds(self, compounds: dict[str, List[Compound | float]]):
-        for compound, val in compounds.items():
-            if compound not in self.compounds.keys():
-                self.compounds[compound] = val
-            else:
-                self.compounds[compound][1] = val[1]
+        absorbed = env.extract_compounds_from(
+            self.x,
+            self.y,
+            absorption_rate,
+            {x.symbol: len([y for y in self.compounds if y.symbol == x.symbol]) for x in self.compounds} # only absorb if have less of compound than in environment
+        )
+        self.compounds.extend(absorbed)
+        return len(absorbed)
 
     def get_reactants(self, rule: ReactionRule):
-        compounds = [
-            [x for x in self.compounds if possible.check_reactant(x)]
-            for possible in rule.possible_reactants
-        ]
-        return [x for x in (Protocell.rng.choice(list(x)) if len(x) != 0 else None for x in compounds) if x]
+        compounds = []
+        for possible_reactant in rule.possible_reactants:
+            possible_compounds = list([x for x in self.compounds if possible_reactant.check_reactant(x)])
+            added_compound = Protocell.rng.choice(possible_compounds) if possible_compounds else None
+            if added_compound:
+                self.compounds.remove(added_compound)
+                compounds.append(added_compound)
+        return compounds
 
     def check_compound_stability(self, instability_threshold: float = 0.5):
-        """
-        Check all compounds for instability and decompose if needed.
-
-        This is called after metabolism to prevent runaway chain formation.
-        """
-        new_compounds = {}
+        new_compounds = []
         total_energy_released = 0.0
         decomposition_count = 0
 
-        for formula, (compound, count) in list(self.compounds.items()):
+        new_compounds.extend(list([x for x in self.compounds if x.stable]))
+
+        for compound in [x for x in self.compounds if not x.stable]:
             instability = CompoundStability.calculate_instability(compound)
 
             # Decompose if too unstable
-            if instability > instability_threshold and not compound.stable:
-                decomposition_count += int(count)
+            if instability > instability_threshold:
+                decomposition_count += 1
 
-                # Decompose each instance
-                for _ in range(int(count)):
-                    fragments, energy = CompoundStability.decompose_compound(
-                        deepcopy(compound),
-                        max_breaks=min(3, int(instability) + 1)
-                    )
-                    total_energy_released += energy
+                fragments, energy = CompoundStability.decompose_compound(
+                    deepcopy(compound),
+                    max_breaks=min(3, int(instability) + 1)
+                )
+                total_energy_released += energy
 
-                    # Add fragments
-                    for fragment in fragments:
-                        frag_formula = fragment.symbol
-                        if frag_formula not in new_compounds:
-                            new_compounds[frag_formula] = [fragment, 0]
-                        new_compounds[frag_formula][1] += 1
+                new_compounds.extend(fragments)
             else:
-                # Keep stable compound
-                if formula not in new_compounds:
-                    new_compounds[formula] = [compound, 0]
-                new_compounds[formula][1] += count
+                new_compounds.append(compound)
 
-        # Update compounds and energy
         self.compounds = new_compounds
         self.energy += total_energy_released
 
@@ -317,22 +319,17 @@ class Protocell:
 
         reactants = self.get_reactants(rule)
         provided_energy = rule.use_energy if rule.use_energy < self.energy else self.energy
-        used_reactants = {reactant_formula : min(round(self.compounds[reactant_formula][1]), 2) for reactant_formula in reactants}
 
         reaction = ReactionEngine(provided_energy, energy_loss=0.2)
-
-        for reactant_formula, count in used_reactants.items():
-            reaction.add_reactants([deepcopy(self.compounds[reactant_formula][0]) for _ in range(count)])
+        reaction.add_reactants(reactants)
 
         products, energy_released = reaction.evaluate_reaction()
         self.energy += energy_released - provided_energy
         self.energy_from_reactions += energy_released - provided_energy
-        count_products = {product.symbol : 0 for product in products}
-        for product in products:
-            count_products[product.symbol] += 1
 
-        products = {product.symbol: [product, count_products[product.symbol]] for product in products}
-        self.add_compounds(products)
+        self.compounds.extend(products)
+
+        return provided_energy, energy_released, tuple((x.symbol for x in reactants)), reaction.reaction_summary
 
     def execute_metabolism(self):
         for rule in self.genome.rules:
@@ -345,9 +342,11 @@ class Protocell:
         return
 
     def metabolise(self):
-        self.energy -= self.base_metabolism * max((self.age / 32), 1)
+        self.energy -= self.base_metabolism * max((self.age / 32), 1) # apply pressure to reproduce and not stagnate
         if self.energy <= 0:
             self.energy = 0
             self.alive = False
+
+        return self.base_metabolism * max((self.age / 32), 1)
 
 

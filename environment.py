@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from chemistry import Compound
 from enum import StrEnum
 from typing import Dict, List, Tuple
+from math import floor, ceil, sqrt
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,8 +23,11 @@ class Source:
     y: int
     intensity: float
     radius: int
-    type: SourceType
+    type: str
     mask: np.ndarray
+
+    def __repr__(self):
+        return f"Source of {self.type:<12s} at (x={self.x:>3d}, y={self.y:>3d}) with intensity {self.intensity:>4.2f} and radius {self.radius:>2d}"
 
     def get_value_at(self, target_x: int, target_y: int) -> float:
         distance = np.sqrt((self.x - target_x)**2 + (self.y - target_y)**2)
@@ -35,6 +39,31 @@ class Source:
 
 
 class Environment:
+    natural_resources = [
+        'energy',
+        'H2O1',
+        'H2',
+        'O2',
+        'N2',
+        'Cl2',
+        'C1O2',
+        'P1',
+        # 'N1H3',
+        # 'C1H4',
+        # 'C1O2',
+        # 'C1',
+        # 'H2S1',
+        # 'O2',
+        # 'N2',
+        # 'H2',
+        # 'Cl2',
+        # 'I2',
+        # 'F2',
+        # 'Br2',
+        # 'S1',
+        # 'P1',
+    ]
+
     def __init__(self, width: int, height: int, ambient_temperature: float = 298.0):
         self.width: int = width
         self.height: int = height
@@ -43,15 +72,12 @@ class Environment:
         self.temperature_grid = np.asarray([[ambient_temperature for w in range(width)] for h in range(height)], dtype=np.float64)
 
         self.grids: Dict[str, np.ndarray] = {
-            source_type: np.zeros((height, width)) for source_type in SourceType
+            resource_type: np.zeros((height, width)) for resource_type in Environment.natural_resources
         }
 
-        self.ambient_compounds: Dict[str, np.ndarray] = {
-            'H2O1': np.ones((height, width)) * 3,
-            # 'O2': np.ones((height, width)) * 1,
-            'N1' : np.ones((height, width)) * 1,
-            'H2': np.ones((height, width)) * 1,
-            'C1': np.ones((height, width)) * 1,
+        self.ambient_compounds: Dict[str, int] = {
+            resource_type: 0 for resource_type in Environment.natural_resources
+        }
 
         }
 
@@ -63,61 +89,64 @@ class Environment:
     def ambient_temperature_grid(self) -> np.ndarray:
         return np.asarray([[self.ambient_temperature for w in range(self.width)] for h in range(self.height)], dtype=np.float64)
 
+    def set_ambient_resource(self, resource: str, amount: int):
+        assert resource in Environment.natural_resources
+
+        self.ambient_compounds[resource] = amount
+
     def _get_compound(self, formula: str, temperature: float) -> Compound:
-        compound = Compound.from_formula(formula)
+        from copy import deepcopy
+        compound = deepcopy(self.compounds[formula])
         compound.remaining_energy = round(temperature)
         return compound
 
     def step(self):
         self._update_grid()
-        self.diffuse_grids(0.4)
+        self.diffuse_grids(0.1)
         self._update_temperature_grid()
         self.time_step += 1
 
     def get_energy_at(self, x: int, y: int) -> float:
         if 0 <= x < self.width and 0 <= y < self.height:
-            return self.grids[SourceType.energy][y, x]
+            return float(self.grids['energy'][y, x])
         return 0.0
 
     def extract_energy_from(self, x: int, y: int, percent: float = 1.0) -> float:
         energy_at = self.get_energy_at(x,y)
         extracted = energy_at * percent
         if energy_at <= extracted or extracted < 0:
-            self.grids[SourceType.energy][y, x] = 0
+            self.grids['energy'][y, x] = 0
             return energy_at
-        self.grids[SourceType.energy][y, x] -= extracted
+        self.grids['energy'][y, x] -= extracted
         return extracted
 
-    def get_compounds_at(self, x:int, y:int) -> Dict[str, float]:
+    def get_compounds_at(self, x:int, y:int) -> Dict[str, int]:
         if 0 > x or x >= self.width or 0 > y or y >= self.height:
             return {}
 
         compounds = {
-            str(compound.upper()): val[y, x] for compound, val in self.grids.items() if compound != SourceType.energy
+            compound_formula: floor(float(val[y, x])) for compound_formula, val in self.grids.items() if compound_formula != 'energy'
         }
-
-        for ambient_compound in self.ambient_compounds.keys():
-            compounds[str(ambient_compound.upper())] = self.ambient_compounds[ambient_compound][y, x]
-
+        
         return compounds
 
-    def extract_compounds_from(self, x:int, y:int, percent:float) -> Dict[str, List[Compound | float]]:
+    def extract_compounds_from(self, x:int, y:int, percent:float, max_compounds: Dict[str, int]) -> List[Compound]:
         if 0 > percent:
             percent = 0.0
         if percent > 1.0:
             percent = 1.0
 
-        compounds = self.get_compounds_at(x, y)
-        extracted_compounds: Dict[str, List[Compound | float]] = {}
+        compounds = {
+            compound_formula: (max(0, min(val - max_compounds[compound_formula], val)) if compound_formula in max_compounds.keys() else val)
+            for compound_formula, val in self.get_compounds_at(x, y).items()
+        }
+        extracted_compounds: List[Compound] = []
         for compound_formula in compounds.keys():
-            if compound_formula in self.ambient_compounds.keys():
-                extracted_compounds[compound_formula] = [
-                    self._get_compound(compound_formula, self.get_temperature_at(x, y)), compounds[compound_formula]
-                ]
-                continue
             compounds[compound_formula] *= percent
-            self.grids[compound_formula][y, x] -= compounds[compound_formula]
-            extracted_compounds[compound_formula] = [self._get_compound(compound_formula, self.get_temperature_at(x, y) // 10), compounds[compound_formula]]
+            self.grids[compound_formula][y, x] -= floor(compounds[compound_formula])
+            extracted_compounds.extend([
+                self._get_compound(compound_formula, self.get_temperature_at(x, y)) for _ in range(floor(compounds[compound_formula]))
+            ])
         return extracted_compounds
 
     def get_temperature_at(self, x: int, y: int):
@@ -127,18 +156,23 @@ class Environment:
 
     def diffuse_grids(self, diffusion_rate: float = 0.1):
         """Simple diffusion - compounds spread to neighboring cells"""
+
         for source_type, grid in self.grids.items():
             new_grid = grid.copy()
+
+            def can_spread(x, y, val) -> bool:
+                return grid[y, x] < val
 
             for y in range(self.height):
                 for x in range(self.width):
                     if grid[y, x] > 0:
+                        val = grid[y, x]
                         amount = grid[y, x] * diffusion_rate
                         neighbors = []
-                        if x > 0: neighbors.append((y, x - 1))
-                        if x < self.width - 1: neighbors.append((y, x + 1))
-                        if y > 0: neighbors.append((y - 1, x))
-                        if y < self.height - 1: neighbors.append((y + 1, x))
+                        if x > 0 and can_spread(x-1, y, val): neighbors.append((y, x - 1))
+                        if x < self.width - 1 and can_spread(x+1, y, val): neighbors.append((y, x + 1))
+                        if y > 0 and can_spread(x, y-1, val): neighbors.append((y - 1, x))
+                        if y < self.height - 1 and can_spread(x, y+1, val): neighbors.append((y + 1, x))
 
                         if neighbors:
                             per_neighbor = amount / len(neighbors)
@@ -156,18 +190,23 @@ class Environment:
         disc = (distances <= radius).astype(int)
         return disc * intensity
 
-    def add_source(self, x:int, y:int, intensity:float, radius: int, source_type: SourceType = SourceType.energy):
-        source = Source(x, y, intensity, radius, source_type, self._create_source_mask(x,y,intensity,radius))
+    def add_source(self, x:int, y:int, intensity:float, radius: int, resource_type: str = 'energy'):
+        assert resource_type in Environment.natural_resources
+        source = Source(x, y, intensity, radius, resource_type, self._create_source_mask(x,y,intensity,radius))
         self.sources.append(source)
         self._update_grid()
         self._update_temperature_grid()
 
     def _update_grid(self):
+        for resource, val in self.ambient_compounds.items():
+            self.grids[resource] += np.asarray(
+                [[max(0, val - self.grids[resource][y, x])for x in range(self.width)] for y in range(self.height)])
+
         for source in self.sources:
             self.grids[source.type] += source.mask
 
     def _update_temperature_grid(self):
-        self.temperature_grid = np.add(self.ambient_temperature_grid, self.grids[SourceType.energy] // 10)
+        self.temperature_grid = np.add(self.ambient_temperature_grid, self.grids['energy'] // 10)
 
     def visualize(self):
         """Create visualization of environment state"""
@@ -199,10 +238,10 @@ class Environment:
 
 
 if __name__ == "__main__":
-    env = Environment(width=64, height=64)
-    env.add_source(x=5, y=5, intensity=200.0, radius=3, source_type=SourceType.energy)
-    env.add_source(x=5, y=5, intensity=200.0, radius=3, source_type=SourceType.energy)
-    env.add_source(x=10, y=10, intensity=0.5, radius=1, source_type=SourceType.co2)
+    env = Environment(width=16, height=16)
+    env.add_source(x=5, y=5, intensity=10.0, radius=3)
+    env.add_source(x=5, y=5, intensity=0.1, radius=3, resource_type='C1O2')
+    env.add_source(x=10, y=10, intensity=0.1, radius=1, resource_type='C1O2')
 
     for x in range(500):
         env.step()
