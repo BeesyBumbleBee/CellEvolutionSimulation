@@ -55,13 +55,12 @@ class Simulation:
                     )
             )
 
-    def reproduce_cell(self, cell: Protocell):
+    def reproduce_cell(self, cell: Protocell) -> Protocell:
         new_genome = cell.genome.get_mutated(rng=self.rng)
         initial_energy = cell.reproduction_cost
         x = self.rng.choice([x for x in [cell.x-1, cell.x, cell.x+1] if 0 < x < self.env.width])
         y = self.rng.choice([y for y in [cell.y-1, cell.y, cell.y+1] if 0 < y < self.env.height])
-        self.cells.append(
-            Protocell(
+        new_cell = Protocell(
                 x=x,
                 y=y,
                 genome=new_genome,

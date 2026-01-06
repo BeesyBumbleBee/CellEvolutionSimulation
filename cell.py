@@ -15,9 +15,9 @@ class PossibleReactant:
             self.need_atoms = []
 
 
-    def check_reactant(self, reactant: str) -> bool:
+    def check_reactant(self, reactant: Compound) -> bool:
         if self.need_atoms:
-            reactant = list(reactant)
+            reactant = list(reactant.symbol)
             for atom in self.need_atoms:
                 if atom not in reactant:
                     return False
@@ -37,8 +37,9 @@ class PossibleReactant:
         return out_str
 
     def get_mutated(self, mutation_rate: float = 1.0, rng: np.random = np.random.default_rng()) -> PossibleReactant:
+        from copy import deepcopy
         possible_mutations = ['add needed atom', 'remove needed atom']
-        new_need_atoms = self.need_atoms
+        new_need_atoms = deepcopy(self.need_atoms)
 
         if mutation_rate > rng.random():
             mutation = rng.choice(possible_mutations)
@@ -76,9 +77,10 @@ class ReactionRule:
         return out_str
 
     def get_mutated(self, mutation_rate: float = 1.0, rng: np.random = np.random.default_rng()):
+        from copy import copy
         possible_mutations = ['add reactant', 'remove reactant', 'mutate possible reactant', 'change used energy', 'change priority']
 
-        new_possible_reactants = self.possible_reactants
+        new_possible_reactants = copy(self.possible_reactants)
         new_use_energy = self.use_energy
         new_priority = self.priority
 
@@ -122,7 +124,7 @@ class ReactionRule:
 
     @staticmethod
     def get_random(rng: np.random = np.random.default_rng()) -> ReactionRule:
-        num_reactants = rng.integers(2, 5)
+        num_reactants = rng.integers(2, 4)
         return ReactionRule(
             possible_reactants=[PossibleReactant.get_random(rng)
                                 for _ in range(num_reactants)],
@@ -136,8 +138,9 @@ class Genome:
 
 
     def get_mutated(self, mutation_rate: float = 0.4, rng: np.random = np.random.default_rng()) -> Genome:
+        from copy import deepcopy
         possible_mutations = ['add reaction rule', 'remove reaction rule', 'mutate reaction rule']
-        new_rules = self.rules
+        new_rules = deepcopy(self.rules)
 
         if mutation_rate > rng.random():
             mutation = rng.choice(possible_mutations)
@@ -157,7 +160,7 @@ class Genome:
 
     @staticmethod
     def get_random(rng: np.random = np.random.default_rng()) -> Genome:
-        num_rules = rng.integers(1, 2)
+        num_rules = 1
         return Genome(rules=[ReactionRule.get_random(rng) for _ in range(num_rules)])
 
 
@@ -182,8 +185,8 @@ class Protocell:
         self.generation = 0
 
         self.reproduction_cost = 800.0
-        self.reproduction_threshold = Protocell.rng.normal(self.reproduction_cost*2, self.reproduction_cost*0.5)
-        self.base_metabolism = 10.0
+        self.reproduction_threshold = Protocell.rng.normal(self.reproduction_cost*2, self.reproduction_cost*0.1)
+        self.base_metabolism = 5.0
 
         self.total_decompositions = 0
         self.energy_from_environment = 0.0
