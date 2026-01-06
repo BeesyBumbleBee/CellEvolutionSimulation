@@ -222,8 +222,8 @@ class Bond:
         1: {
             'H-H': 436, 'C-C': 347, 'N-N': 161, 'O-O': 146, 'F-F': 153, 'Si-Si': 218, 'P-P': 213, 'S-S': 226, 'Cl-Cl': 243,
             'Br-Br': 192, 'I-I': 151, 'C-H': 414, 'H-N': 389, 'H-O': 464, 'F-H': 565, 'Cl-H': 431, 'Br-H': 366, 'H-I': 297,
-            'B-H': 377, 'H-S': 339, 'H-Si': 293, 'H-P': 322, 'B-F': 644, 'B-O': 515, 'C-N': 305, 'CO-N': 360, 'C-O': 358,
-            'CO-O': 460, 'C-S': 272, 'C-F': 485, 'C-Cl': 339, 'Br-C': 285, 'C-I': 213, 'B-C': 393, 'C-Si': 347, 'C-P': 305,
+            'B-H': 377, 'H-S': 339, 'H-Si': 293, 'H-P': 322, 'B-F': 644, 'B-O': 515, 'C-N': 305, 'C-O': 358,
+            'C-S': 272, 'C-F': 485, 'C-Cl': 339, 'Br-C': 285, 'C-I': 213, 'B-C': 393, 'C-Si': 347, 'C-P': 305,
             'N-O': 230, 'O-S': 364, 'F-Si': 552, 'Cl-Si': 360, 'O-Si': 460, 'Cl-P': 331, 'Br-P': 272, 'O-P': 402
         },
         2: {
@@ -667,7 +667,8 @@ class ReactionEngine:
 
             for comp_a in unstable_a:
                 for comp_b in unstable_b:
-                    if f'{comp_a[2].symbol}-{comp_b[2].symbol}' not in Bond.BondEnergy[1]:
+                    if f'{comp_a[2].symbol}-{comp_b[2].symbol}' not in list(Bond.BondEnergy[1].keys()) and \
+                        f'{comp_b[2].symbol}-{comp_a[2].symbol}' not in list(Bond.BondEnergy[1].keys()):
                         continue
                     bond = Bond(comp_a[2], comp_b[2], 1)
                     if bond.energy != -1:
@@ -849,10 +850,10 @@ def __large_scale_hydrogen_combustion_example():
 
 def __carbic_acid_synthesis_example():
     print("\n\n *===== Carbic Acid Synthesis =====*")
-    co2 = Compound.from_formula("CO2", 0)
-    h2o = Compound.from_formula("H2O", 0)
+    co2 = Compound.from_formula("C1O2", 0)
+    h2o = Compound.from_formula("H2O1", 0)
 
-    reaction = ReactionEngine(0, energy_loss=0.2)
+    reaction = ReactionEngine(600, energy_loss=0.2)
     reaction.add_reactant(co2)
     reaction.add_reactant(h2o)
 
