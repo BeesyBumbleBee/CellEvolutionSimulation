@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 from os import path
@@ -29,6 +29,7 @@ class Simulation:
         return len([x for x in self.cells if x.alive])
 
     def setup_environment(self, sources: Dict[str, int] = None, ambient_resources: Dict[str, int] = None):
+        Protocell.next_id = 0
         if sources is None:
             sources = {
                 'energy': 2,
@@ -235,9 +236,13 @@ class Simulation:
                self.visualize()
 
             self.step()
+            if early_stop_condition is not None:
+                if self.population > early_stop_condition:
+                    print("Early stop due to overpopulation")
+                    return True
 
             if self.population <= 0:
                 print(f"Extinction! at time step {self.time}")
-                break
-        for alive_cell in [x for x in self.cells if x.alive]:
-            print(alive_cell.summary())
+                return False
+
+        return True

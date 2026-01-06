@@ -237,7 +237,7 @@ class Protocell:
         sorted_reaction_counts = list(sorted([(key, val) for key, val in self.reactions_count.items()], key=lambda x: x[1], reverse=True))
         for i, x in enumerate(sorted_reaction_counts[:5 if len(sorted_reaction_counts) > 5 else len(sorted_reaction_counts)]):
             reaction, val = x
-            out_str += f'\t[{i:>2d}] ({val: 4d}) {reaction}'
+            out_str += f'\t[{i:>2d}] ({val: 4d}) {reaction}\n'
 
         out_str += "\nCompounds:\n"
         for compound_formula, val in self.unique_compounds.items():
