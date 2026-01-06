@@ -138,6 +138,13 @@ class Atom:
         'C': 2.55,
         'N': 3.04,
         'O': 3.44,
+        'P': 2.19,
+        'Si': 1.90,
+        'S': 2.58,
+        'F': 3.98,
+        'Cl': 3.16,
+        'Br': 2.96,
+        'I': 2.66,
     }
 
     basic_atoms: Dict[str, Dict] = {
@@ -145,6 +152,13 @@ class Atom:
         'C': {'mass': 12, 'symbol': 'C', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
         'N': {'mass': 14, 'symbol': 'N', 'electrons_in_covalence': 5, 'optimal_electrons': 8},
         'O': {'mass': 16, 'symbol': 'O', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
+        # 'S': {'mass': 32, 'symbol': 'S', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
+        'P': {'mass': 31, 'symbol': 'P', 'electrons_in_covalence': 5, 'optimal_electrons': 8},
+        # 'Si': {'mass': 28, 'symbol': 'Si', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
+        # 'F': {'mass': 19, 'symbol': 'F', 'electrons_in_covalence': 7, 'optimal_electrons': 8},
+        'Cl': {'mass': 35, 'symbol': 'Cl', 'electrons_in_covalence': 7, 'optimal_electrons': 8},
+        # 'Br': {'mass': 80, 'symbol': 'Br', 'electrons_in_covalence': 7, 'optimal_electrons': 8},
+        # 'I': {'mass': 127, 'symbol': 'I', 'electrons_in_covalence': 7, 'optimal_electrons': 8},
     }
 
     def __init__(self, mass: float, symbol: str, electrons_in_covalence: int, optimal_electrons: int):
@@ -179,7 +193,7 @@ class Atom:
     @staticmethod
     def get(atom_symbol: str) -> Atom:
         try:
-            return Atom(**Atom.basic_atoms[atom_symbol.upper()])
+            return Atom(**Atom.basic_atoms[atom_symbol])
         except KeyError:
             raise Atom.AtomNotDefined
 
@@ -187,7 +201,7 @@ class Atom:
 class Bond:
     """
     Class defining energy values of bonds between two atoms
-    Source: https://chem.libretexts.org/Bookshelves/Physical_and_Theoretical_Chemistry_Textbook_Maps/Supplemental_Modules_(Physical_and_Theoretical_Chemistry)/Chemical_Bonding/Fundamentals_of_Chemical_Bonding/Bond_Energies
+    Source: https://georgiasouthern.libguides.com/c.php?g=1074545&p=7874485
     """
     class BondNotDefinedError(Exception):
         pass
@@ -197,20 +211,18 @@ class Bond:
 
     BondEnergy = {
         1: {
-            'H-H': 432, 'H-O': 467, 'H-N': 391,
-            'C-H': 413, 'C-C': 347, 'C-O': 358, 'C-N': 305,
-            'O-O': 146,
-            'N-N': 160, 'N-O': 201,
-
+            'H-H': 436, 'C-C': 347, 'N-N': 161, 'O-O': 146, 'F-F': 153, 'Si-Si': 218, 'P-P': 213, 'S-S': 226, 'Cl-Cl': 243,
+            'Br-Br': 192, 'I-I': 151, 'C-H': 414, 'H-N': 389, 'H-O': 464, 'F-H': 565, 'Cl-H': 431, 'Br-H': 366, 'H-I': 297,
+            'B-H': 377, 'H-S': 339, 'H-Si': 293, 'H-P': 322, 'B-F': 644, 'B-O': 515, 'C-N': 305, 'CO-N': 360, 'C-O': 358,
+            'CO-O': 460, 'C-S': 272, 'C-F': 485, 'C-Cl': 339, 'Br-C': 285, 'C-I': 213, 'B-C': 393, 'C-Si': 347, 'C-P': 305,
+            'N-O': 230, 'O-S': 364, 'F-Si': 552, 'Cl-Si': 360, 'O-Si': 460, 'Cl-P': 331, 'Br-P': 272, 'O-P': 402
         },
         2: {
-            'C-C': 614, 'C-O': 745, 'C-N': 615,
-            'O-O': 495,
-            'N-N': 418, 'N-O': 607,
+            'C-C': 611, 'N-N': 456, 'O-O': 498, 'C-N': 615, 'C-O': 755, 'C-S': 577, 'N-O': 598, 'O-P': 460, 'P-S': 293,
+            'O-S': 462, 'P-P': 351
         },
         3: {
-            'C-C': 839, 'C-O': 1072, 'C-N': 891,
-            'N-N': 941,
+            'P-P': 490, 'C-O': 1079, 'C-C': 837, 'N-N': 946, 'C-N': 891
         }
     }
 
