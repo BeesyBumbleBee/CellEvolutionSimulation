@@ -52,7 +52,7 @@ class Environment:
         # 'I2',
         # 'F2',
         # 'Br2',
-        # 'S1',
+        'S1',
         # 'P1',
     ]
 
@@ -204,6 +204,8 @@ class Environment:
 
     def add_source(self, x:int, y:int, intensity:float, radius: int, resource_type: str = 'energy'):
         assert resource_type in Environment.natural_resources
+        if intensity < 0.0:
+            intensity = -intensity
         source = Source(x, y, intensity, radius, resource_type, self._create_source_mask(x,y,intensity,radius))
         self.sources.append(source)
         self._update_grid()
@@ -237,7 +239,7 @@ class Environment:
                     axes[a, b].set_xlabel('X Position')
                     axes[a, b].set_ylabel('Y Position')
                     plt.colorbar(im, ax=axes[a, b], label=f'Temperature [K]')
-
+                    break
                 else:
                     source_type, grid = iterator[i]
                     i += 1

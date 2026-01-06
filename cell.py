@@ -179,6 +179,7 @@ class CellLog:
     absorbed_amount: int = 0
     reactants_used: List[Tuple[str]] = None
     reactions: List[str] = None
+    decompositions: List[str] = None
 
 
 class Protocell:
@@ -210,6 +211,7 @@ class Protocell:
         self.energy_from_reactions = 0.0
         self.energy_from_decomposition = 0.0
         self.reactions_count: Dict[str, int] = {}
+        self.decompositions_count: Dict[str, int] = {}
         self.children = 0
         self.parent: str = ""
 
@@ -228,6 +230,7 @@ class Protocell:
         return f'Cell-{self.id:<4d} (x={self.x:<3d}, y={self.y:<3d}): Age: {self.age:4d} | Gen: {self.generation:2d} | Energy: {self.energy:8.2f} | ALIVE: {self.alive}'
 
     def summary(self) -> str:
+        top = 15
         out_str = f"{self}\n"
         out_str += f'Parent: {self.parent:<10s} | Children: {self.children:<4d}\n'
         out_str += f"Energy from environment:    {self.energy_from_environment:>8.2f}\n"
@@ -235,7 +238,13 @@ class Protocell:
         out_str += f"Energy from decomposition:  {self.energy_from_decomposition:>8.2f}\n"
         out_str += f"Most common reactions: \n"
         sorted_reaction_counts = list(sorted([(key, val) for key, val in self.reactions_count.items()], key=lambda x: x[1], reverse=True))
-        for i, x in enumerate(sorted_reaction_counts[:5 if len(sorted_reaction_counts) > 5 else len(sorted_reaction_counts)]):
+        for i, x in enumerate(sorted_reaction_counts[:top if len(sorted_reaction_counts) > top else len(sorted_reaction_counts)]):
+            reaction, val = x
+            out_str += f'\t[{i:>2d}] ({val: 4d}) {reaction}\n'
+
+        out_str += f"Most common decompositions: \n"
+        sorted_decompositions_counts = list(sorted([(key, val) for key, val in self.decompositions_count.items()], key=lambda x: x[1], reverse=True))
+        for i, x in enumerate(sorted_decompositions_counts [:top if len(sorted_decompositions_counts ) > top else len(sorted_decompositions_counts )]):
             reaction, val = x
             out_str += f'\t[{i:>2d}] ({val: 4d}) {reaction}\n'
 
@@ -320,6 +329,7 @@ class Protocell:
         new_compounds = []
         total_energy_released = 0.0
         decomposition_count = 0
+        decompositions_summary = []
 
         new_compounds.extend(list([x for x in self.compounds if x.stable]))
 
@@ -330,11 +340,12 @@ class Protocell:
             if instability > instability_threshold:
                 decomposition_count += 1
 
-                fragments, energy = CompoundStability.decompose_compound(
+                fragments, energy, decomposition_summary = CompoundStability.decompose_compound(
                     deepcopy(compound),
                     max_breaks=min(3, int(instability) + 1)
                 )
                 total_energy_released += energy
+                decompositions_summary.append(decomposition_summary)
 
                 new_compounds.extend(fragments)
             else:
@@ -346,7 +357,7 @@ class Protocell:
         self.total_decompositions += decomposition_count
         self.energy_from_decomposition += total_energy_released
 
-        return decomposition_count, total_energy_released
+        return decomposition_count, total_energy_released, decompositions_summary
 
     def execute_reaction_rule(self, rule: ReactionRule) -> Tuple[int, int, Tuple[str], str] | Tuple[int, int, None, None]:
         reactants = self.get_reactants(rule)
@@ -370,6 +381,7 @@ class Protocell:
         total_energy_from_reaction = 0
         all_reactants = []
         reactions = []
+        decompositions = []
         number_of_reactions = 0
         for rule in self.genome.rules:
             energy_used, energy_from_reaction, reactants_used, reaction_summary = self.execute_reaction_rule(rule)
@@ -382,20 +394,29 @@ class Protocell:
                     self.reactions_count[reaction_summary] += 1
                 except KeyError:
                     self.reactions_count[reaction_summary] = 1
+
                 number_of_reactions += 1
 
-        decompositions, energy_recovered = self.check_compound_stability(
+        number_of_decompositions, energy_recovered, decompositions_summary = self.check_compound_stability(
             instability_threshold=0.8
         )
 
+        for decomposition_summary in [x for x in decompositions_summary if len(x) > 1]:
+            decompositions.append(decomposition_summary)
+            try:
+                self.decompositions_count[decomposition_summary] += 1
+            except KeyError:
+                self.decompositions_count[decomposition_summary] = 1
+
         return {
-            'number_of_decompositions': decompositions,
+            'number_of_decompositions': number_of_decompositions,
             'energy_from_decomposition': energy_recovered,
             'energy_used': total_energy_used,
             'number_of_reactions': number_of_reactions,
             'energy_from_reaction': total_energy_from_reaction,
             'reactants_used': all_reactants,
             'reactions': reactions,
+            'decompositions': decompositions_summary,
         }
 
     def metabolise(self):

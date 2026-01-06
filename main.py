@@ -8,26 +8,27 @@ import matplotlib.pyplot as plt
 
 
 def test_sim():
-    end_time = 0
-    timesteps = 300
-    early_stop = 600
+    timesteps = 5000
+    early_stop = 10000
 
-    seed: int = 219293 # np.random.default_rng().integers(low=0, high=1000000)
+    seed: int = np.random.default_rng().integers(low=0, high=1000000)
     ended_successfully = False
 
 
     while not ended_successfully:
-        sim = Simulation(20, 20)
+        sim = Simulation(64, 64)
         sim.rng = np.random.default_rng(seed=seed)
         print(f"Seed: {seed}")
         seed += 1
         sources = {
             'energy': 1,
-            # 'H2S1': 2,
+            'S1': 2,
             # 'Cl2': 2,
             # 'I2': 1,
             # 'F2': 1,
             # 'Br2': 1,
+            'C1O2': 3,
+            'P1': 1,
         }
         ambient = {
             'H2O1': 5,
@@ -35,8 +36,6 @@ def test_sim():
             'O2': 1,
             'N2': 1,
             'Cl2': 1,
-            'C1O2': 2,
-            'P1': 1,
         }
         sim.setup_environment(sources, ambient)
         sim.populate_environment(50)

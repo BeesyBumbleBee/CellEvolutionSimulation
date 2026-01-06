@@ -153,7 +153,8 @@ class Simulation:
             ],
             'bar_rank': [
                 'reactants_used',
-                'reactions'
+                'reactions',
+                'decompositions'
             ]
         }
 
@@ -167,11 +168,12 @@ class Simulation:
                     plt.show()
 
 
-    def update_history(self, step_history: Dict[str: int], step_reactants: List[Tuple[str]], step_reactions: List[str]):
+    def update_history(self, step_history: Dict[str: int], step_reactants: List[Tuple[str]], step_reactions: List[str], step_decompositions: List[str]):
         self.history['time'].append(self.time)
         self.history['population'].append(self.population)
         self.history['reactants_used'].extend([" + ".join(sorted([y for y in x])) for x in step_reactants])
         self.history['reactions'].extend(step_reactions)
+        self.history['decompositions'].extend(step_decompositions)
         for key, val in step_history.items():
             self.history[key].append(round(val,2))
 
@@ -185,6 +187,7 @@ class Simulation:
         new_cells = []
         reactants_in_time_step = []
         reactions_in_time_step = []
+        decompositions_in_time_step = []
         for cell in [x for x in self.cells if x.alive]:
             cell_log = cell.step(self.env)
             for log, val in [(log, val) for log,val in cell_log.__dict__.items() if not log.startswith('__')]:
@@ -192,13 +195,20 @@ class Simulation:
                     reactants_in_time_step.extend(val)
                 elif log == 'reactions':
                     reactions_in_time_step.extend(val)
+                elif log == 'decompositions':
+                    decompositions_in_time_step.extend(val)
                 else:
                     time_step_statistics[log] += val
 
             if cell.can_reproduce:
                 new_cells.append(self.reproduce_cell(cell))
 
-        self.update_history(time_step_statistics, reactants_in_time_step, reactions_in_time_step)
+        self.update_history(
+            time_step_statistics,
+            reactants_in_time_step,
+            reactions_in_time_step,
+            decompositions_in_time_step
+        )
         self.cells.extend(new_cells)
         self.time += 1
 
@@ -212,10 +222,6 @@ class Simulation:
 
         plt.show()
         print(f"Population: {self.population}")
-
-        # for cell in self.cells:
-        #     print(cell.summary())
-        # print("\n\n")
 
     def summary(self) -> str:
         out_str = " *=========== Simulation Summary ==========* \n"

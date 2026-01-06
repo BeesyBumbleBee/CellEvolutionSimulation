@@ -82,13 +82,15 @@ class CompoundStability:
         return energy_gained, reaction.reactants[0]
 
     @staticmethod
-    def decompose_compound(compound, max_breaks: int = 2) -> Tuple[List, float]:
+    def decompose_compound(compound, max_breaks: int = 2) -> Tuple[List, float, str]:
+        decompose_str = ""
         if len(compound.bonds) == 0:
-            return [compound], 0.0
+            return [compound], 0.0, decompose_str
+
 
         energy_gained, compound = CompoundStability.make_inner_connections(compound)
         if not CompoundStability.should_decompose(compound, instability_threshold=0.8):
-            return [compound], energy_gained
+            return [compound], energy_gained, decompose_str
 
         instability = CompoundStability.calculate_instability(compound)
 
@@ -96,13 +98,15 @@ class CompoundStability:
         comp_len = len(compound.components)
         num_breaks = min(max_breaks, max(0, comp_len-int(instability) + 1))
         if num_breaks == 0:
-            return [compound], 0.0
+            return [compound], 0.0, decompose_str
         weak_bonds = CompoundStability.find_weakest_bonds(compound, num_breaks)
 
         if not weak_bonds:
-            return [compound], 0.0
+            return [compound], 0.0, decompose_str
 
         energy_released = 0.0
+
+        decompose_str = compound.symbol + ' -> '
 
         # Break bonds from highest index to lowest to avoid index shifting
         for bond_idx, bond_energy in sorted(weak_bonds, reverse=True):
@@ -129,7 +133,9 @@ class CompoundStability:
                     (fragment.mass / total_mass) * compound.remaining_energy
                 )
 
-        return fragments, energy_released
+        decompose_str += ' + '.join([fragment.symbol for fragment in fragments])
+
+        return fragments, energy_released, decompose_str
 
 
 class Atom:
@@ -155,7 +161,7 @@ class Atom:
         'C': {'mass': 12, 'symbol': 'C', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
         'N': {'mass': 14, 'symbol': 'N', 'electrons_in_covalence': 5, 'optimal_electrons': 8},
         'O': {'mass': 16, 'symbol': 'O', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
-        # 'S': {'mass': 32, 'symbol': 'S', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
+        'S': {'mass': 32, 'symbol': 'S', 'electrons_in_covalence': 6, 'optimal_electrons': 8},
         'P': {'mass': 31, 'symbol': 'P', 'electrons_in_covalence': 5, 'optimal_electrons': 8},
         # 'Si': {'mass': 28, 'symbol': 'Si', 'electrons_in_covalence': 4, 'optimal_electrons': 8},
         # 'F': {'mass': 19, 'symbol': 'F', 'electrons_in_covalence': 7, 'optimal_electrons': 8},
