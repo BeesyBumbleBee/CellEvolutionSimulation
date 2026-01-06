@@ -533,6 +533,7 @@ class ReactionEngine:
         self.energy_from_reactions: int = 0
         self.energy_loss: float = energy_loss
         self.reactants: List[Compound] = []
+        self.reaction_summary: str = ""
 
     def __repr__(self):
         return f"Reaction with {len(self.reactants):2d} reactants. System energy {self.system_energy:8.2f}. Energy loss {self.energy_loss:4.2f}"
@@ -555,6 +556,9 @@ class ReactionEngine:
             for j, bond in enumerate(reactant.bonds):
                 out_str += f"\t\t[{j:2d}] {bond[0]}\n"
         return out_str
+
+    def __update_reaction_summary(self, reactants: List[str], products: List[str]) -> None:
+        self.reaction_summary = ' + '.join(reactants) + ' -> ' + ' + '.join(products)
 
     def print_summary(self) -> None:
         print(self.summary)
@@ -775,6 +779,9 @@ class ReactionEngine:
         logger.info("*== Final reaction state ==*")
         logger.info(self.summary)
         logger.info(f"Energy lost: {energy_lost:8.2f} kJ/mol ({self.energy_loss*100:4.2f} %)")
+
+        self.__update_reaction_summary(reactants=sorted(starting_reactants),
+                                       products=sorted([x.symbol for x in self.reactants]))
 
         logger.info("*===============================*")
         return self.reactants, energy_lost
