@@ -403,6 +403,9 @@ class Compound:
     def is_reactive(self) -> bool:
         return all(self.reactive_sites.values())
 
+    def __hash__(self):
+        return hash(f'{self.symbol}' + '|'.join([f'{bond.component_A.symbol}{bond.multiplicity}{bond.component_B.symbol},{i},{j}' for bond,i,j in self.bonds]))
+
     def summary(self) -> str:
         out_str = '*' + '=' * 80 + '*\n'
         out_str += f"{self} \nStructure:\n"
