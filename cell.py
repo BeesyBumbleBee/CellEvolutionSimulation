@@ -163,6 +163,20 @@ class Genome:
         num_rules = 1
         return Genome(rules=[ReactionRule.get_random(rng) for _ in range(num_rules)])
 
+@dataclass
+class CellLog:
+    age: int = -1
+    generation: int = -1
+    energy_used: int = 0
+    energy_from_reaction: int = 0
+    energy_from_decomposition: int = 0
+    energy_from_environment: int = 0
+    number_of_reactions: int = 0
+    number_of_decompositions: int = 0
+    absorbed_amount: int = 0
+    reactants_used: List[Tuple[str]] = None
+    reactions: List[str] = None
+
 
 class Protocell:
     next_id: int = 0
@@ -231,26 +245,32 @@ class Protocell:
         return self.energy >= self.reproduction_threshold
 
 
-    def step(self, env: Environment):
+    def step(self, env: Environment) -> CellLog:
+        log = {}
         if not self.alive:
-            return
+            return CellLog()
 
         self.age += 1
+        log['age'] = self.age
+        log['generation'] = self.generation
+
         # 1. Absorb energy from environment
-        self.absorb_energy(env)
+        log['energy_from_environment'] = self.absorb_energy(env)
 
         # 2. Absorb compounds from environment
-        self.absorb_compounds(env)
+        log['absorbed_amount'] = self.absorb_compounds(env)
 
         # 3. Execute reactions listed in genome
-        self.execute_metabolism()
+        log.update(self.execute_metabolism())
 
         # 4. Metabolise -> use energy to keep alive
-        self.metabolise()
+        log['energy_used'] += self.metabolise()
 
-        return
+        return CellLog(
+            **log
+        )
 
-    def absorb_energy(self, env: Environment, absorption_rate: float = 0.7):
+    def absorb_energy(self, env: Environment, absorption_rate: float = 0.7) -> float:
         if absorption_rate > 1.0:
             absorption_rate = 1.0
         if absorption_rate < 0.0:
@@ -259,8 +279,9 @@ class Protocell:
         energy = env.extract_energy_from(self.x, self.y, absorption_rate)
         self.energy_from_environment += energy
         self.energy += energy
+        return energy
 
-    def absorb_compounds(self, env: Environment, absorption_rate: float = 0.7):
+    def absorb_compounds(self, env: Environment, absorption_rate: float = 1.0):
         if absorption_rate > 1.0:
             absorption_rate = 1.0
         if absorption_rate < 0.0:
@@ -317,10 +338,10 @@ class Protocell:
 
         return decomposition_count, total_energy_released
 
-    def execute_reaction_rule(self, rule: ReactionRule):
-        from copy import deepcopy
-
+    def execute_reaction_rule(self, rule: ReactionRule) -> Tuple[int, int, Tuple[str], str] | Tuple[int, int, None, None]:
         reactants = self.get_reactants(rule)
+        if len(reactants) <= 1:
+            return 0, 0, None, None
         provided_energy = rule.use_energy if rule.use_energy < self.energy else self.energy
 
         reaction = ReactionEngine(provided_energy, energy_loss=0.2)
@@ -335,14 +356,37 @@ class Protocell:
         return provided_energy, energy_released, tuple((x.symbol for x in reactants)), reaction.reaction_summary
 
     def execute_metabolism(self):
+        total_energy_used = 0
+        total_energy_from_reaction = 0
+        all_reactants = []
+        reactions = []
+        number_of_reactions = 0
         for rule in self.genome.rules:
-            self.execute_reaction_rule(rule)
+            energy_used, energy_from_reaction, reactants_used, reaction_summary = self.execute_reaction_rule(rule)
+            if reactants_used is not None:
+                total_energy_used += energy_used
+                total_energy_from_reaction += energy_from_reaction
+                all_reactants.append(reactants_used)
+                reactions.append(reaction_summary)
+                try:
+                    self.reactions_count[reaction_summary] += 1
+                except KeyError:
+                    self.reactions_count[reaction_summary] = 1
+                number_of_reactions += 1
 
         decompositions, energy_recovered = self.check_compound_stability(
             instability_threshold=0.8
         )
 
-        return
+        return {
+            'number_of_decompositions': decompositions,
+            'energy_from_decomposition': energy_recovered,
+            'energy_used': total_energy_used,
+            'number_of_reactions': number_of_reactions,
+            'energy_from_reaction': total_energy_from_reaction,
+            'reactants_used': all_reactants,
+            'reactions': reactions,
+        }
 
     def metabolise(self):
         self.energy -= self.base_metabolism * max((self.age / 32), 1) # apply pressure to reproduce and not stagnate
