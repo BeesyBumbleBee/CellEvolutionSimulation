@@ -216,7 +216,20 @@ class Simulation:
         #     print(cell.summary())
         # print("\n\n")
 
-    def run(self, steps: int = 100, visualize_steps: int = 0):
+    def summary(self) -> str:
+        out_str = " *=========== Simulation Summary ==========* \n"
+        out_str += f"Final population: {self.population}\n"
+        out_str += f"Time steps elapsed: {self.time}\n"
+        out_str += "\n *============== Environment ==============* \n"
+        out_str += self.env.summary()
+
+        out_str += "\n *============== Alive Cells ==============* \n"
+        for alive_cell in [x for x in self.cells if x.alive]:
+            out_str += alive_cell.summary() + '\n'
+        return out_str
+
+
+    def run(self, steps: int = 100, visualize_steps: int = 0, early_stop_condition: int = None) -> bool:
         for i in range(steps):
             if visualize_steps > 0 and (i % visualize_steps == 0 or i == steps - 1):
                self.visualize()

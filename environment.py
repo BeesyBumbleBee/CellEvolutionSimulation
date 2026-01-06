@@ -8,14 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-class SourceType(StrEnum):
-    energy = "energy"
-    # n2 = "N2"
-    # co2 = "C1O2"
-    # n1 = 'N1'
-    # h2 = 'H2'
-    # c1 = 'C1'
-
 
 @dataclass
 class Source:
@@ -79,11 +71,31 @@ class Environment:
             resource_type: 0 for resource_type in Environment.natural_resources
         }
 
+        self.compounds: Dict[str, Compound] = {
+            compound_formula: Compound.from_formula(compound_formula) for compound_formula in Environment.natural_resources if compound_formula != 'energy'
         }
 
         self.sources: List[Source] = []
 
         self.time_step = 0
+
+    def __repr__(self):
+        return f"Environment of size {self.width}x{self.height}"
+
+    def summary(self) -> str:
+        out_str = f"{self}\n"
+        out_str += "Resources spawning inside:\n"
+        for resource in Environment.natural_resources:
+            out_str += f"\t{resource}\n"
+        out_str += "\nSources:\n"
+        for source in self.sources:
+            out_str += f"\t{source}\n"
+        out_str += "\nAmbient resources:\n"
+        for resource, val in self.ambient_compounds.items():
+            if val == 0:
+                continue
+            out_str += f'\t{resource:12s} = {val:<4.2f}\n'
+        return out_str
 
     @property
     def ambient_temperature_grid(self) -> np.ndarray:
@@ -127,7 +139,7 @@ class Environment:
         compounds = {
             compound_formula: floor(float(val[y, x])) for compound_formula, val in self.grids.items() if compound_formula != 'energy'
         }
-        
+
         return compounds
 
     def extract_compounds_from(self, x:int, y:int, percent:float, max_compounds: Dict[str, int]) -> List[Compound]:
@@ -210,29 +222,33 @@ class Environment:
 
     def visualize(self):
         """Create visualization of environment state"""
-        fig, axes = plt.subplots(len(self.grids)+1, figsize=(4, len(self.grids)*3))
+        x_len = floor(sqrt(len(self.grids) + 1))
+        y_len = ceil(sqrt(len(self.grids) + 1))
+        fig, axes = plt.subplots(x_len, y_len, figsize=(6*x_len, 5*y_len))
 
-        for i, grid in enumerate(self.grids.items()):
-            source_type, grid = grid
-            im1 = axes[i].imshow(grid, cmap='hot', interpolation='nearest')
-            axes[i].set_title(f'{source_type.title()} Distribution (t={self.time_step})')
-            axes[i].set_xlabel('X Position')
-            axes[i].set_ylabel('Y Position')
-            #plt.colorbar(im1, ax=axes, label=f'{source_type.title()}')
 
-            for source in [src for src in self.sources if src.type == source_type]:
-                axes[i].plot(source.x, source.y, 'x', markersize=8)
-                # circle = plt.Circle((source.x, source.y), source.radius,
-                #                     fill=False, color='blue', linestyle='--')
-                # axes[i].add_patch(circle)
+        i = 0
+        iterator = list(self.grids.items())
+        for a in range(x_len):
+            for b in range(y_len):
+                if i == len(self.grids):
+                    im = axes[a, b].imshow(self.temperature_grid, cmap='hot', interpolation='nearest')
+                    axes[a, b].set_title(f'Temperature (t={self.time_step})')
+                    axes[a, b].set_xlabel('X Position')
+                    axes[a, b].set_ylabel('Y Position')
+                    plt.colorbar(im, ax=axes[a, b], label=f'Temperature [K]')
 
-        im1 = axes[-1].imshow(self.temperature_grid, cmap='hot', interpolation='nearest')
-        axes[-1].set_title(f'Temperature (t={self.time_step})')
-        axes[-1].set_xlabel('X Position')
-        axes[-1].set_ylabel('Y Position')
-        #plt.colorbar(im1, ax=axes, label=f'Temperature [K]')
+                else:
+                    source_type, grid = iterator[i]
+                    i += 1
+                    im = axes[a, b].imshow(grid, cmap='hot', interpolation='nearest', vmin=0)
+                    axes[a, b].set_title(f'{source_type.title()} Distribution (t={self.time_step})')
+                    axes[a, b].set_xlabel('X Position')
+                    axes[a, b].set_ylabel('Y Position')
+                    plt.colorbar(im, ax=axes[a, b], label=f'{source_type} amount [mol]', use_gridspec=True)
 
-        fig.tight_layout()
+                    for source in [src for src in self.sources if src.type == source_type]:
+                        axes[a, b].plot(source.x, source.y, 'x', markersize=8)
 
         return fig, axes
 

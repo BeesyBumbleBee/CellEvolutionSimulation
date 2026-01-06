@@ -71,6 +71,9 @@ class ReactionRule:
         self.priority = priority
 
     def __repr__(self):
+        return f"Reaction rule: Energy to use = {self.use_energy}, Possible reactants = {self.possible_reactants}"
+
+    def summary(self) -> str:
         out_str = f"Use {self.use_energy:6.2f} kJ/mol to connect ({len(self.possible_reactants)}) reactants:\n"
         for reactant in self.possible_reactants:
             out_str += f'\t{reactant}\n'
@@ -226,16 +229,23 @@ class Protocell:
 
     def summary(self) -> str:
         out_str = f"{self}\n"
-        out_str += f"Energy from environment: {self.energy_from_environment:8.2f}\n"
-        out_str += f"Energy from reactions: {self.energy_from_reactions:8.2f}\n"
-        out_str += f"Energy from decomposition: {self.energy_from_decomposition:8.2f}\n"
-        out_str += "Compounds:\n"
-        for formula, val in self.compounds.items():
-            out_str += f'\t{formula}: {val[1]:4.2f}\n'
+        out_str += f'Parent: {self.parent:<10s} | Children: {self.children:<4d}\n'
+        out_str += f"Energy from environment:    {self.energy_from_environment:>8.2f}\n"
+        out_str += f"Energy from reactions:      {self.energy_from_reactions:>8.2f}\n"
+        out_str += f"Energy from decomposition:  {self.energy_from_decomposition:>8.2f}\n"
+        out_str += f"Most common reactions: \n"
+        sorted_reaction_counts = list(sorted([(key, val) for key, val in self.reactions_count.items()], key=lambda x: x[1], reverse=True))
+        for i, x in enumerate(sorted_reaction_counts[:5 if len(sorted_reaction_counts) > 5 else len(sorted_reaction_counts)]):
+            reaction, val = x
+            out_str += f'\t[{i:>2d}] ({val: 4d}) {reaction}'
 
-        out_str += "Genome:\n"
-        for rule in self.genome.rules:
-            out_str += f"\t{rule}"
+        out_str += "\nCompounds:\n"
+        for compound_formula, val in self.unique_compounds.items():
+            out_str += f'\t{compound_formula:>10s} : {val[1]:3d} | {val[0]}\n'
+
+        out_str += "\nGenome:\n"
+        for i, rule in enumerate(self.genome.rules):
+            out_str += f"[{i:>2d}] {rule.summary()}\n"
         return out_str
 
 
