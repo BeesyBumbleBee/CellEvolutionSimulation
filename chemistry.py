@@ -93,7 +93,10 @@ class CompoundStability:
         instability = CompoundStability.calculate_instability(compound)
 
         # Determine how many bonds to break based on instability
-        num_breaks = min(max_breaks, int(instability) + 1)
+        comp_len = len(compound.components)
+        num_breaks = min(max_breaks, max(0, comp_len-int(instability) + 1))
+        if num_breaks == 0:
+            return [compound], 0.0
         weak_bonds = CompoundStability.find_weakest_bonds(compound, num_breaks)
 
         if not weak_bonds:
@@ -237,7 +240,8 @@ class Bond:
         try:
             self.energy = Bond.BondEnergy[multiplicity][f'{self.component_A.symbol}-{self.component_B.symbol}']
         except KeyError:
-            raise Bond.BondNotDefinedError
+            self.energy = -1
+            logger.warning(f"Bond not defined: {component_a.symbol}-{component_b.symbol}")
         self.strain: float = 0.0
 
     def __repr__(self):
@@ -270,7 +274,7 @@ class Bond:
         return (self.component_B.electronegativity - self.component_A.electronegativity) > 0
 
     def comp_polarity(self, atom_symbol: str):
-        if atom_symbol.upper() not in [self.component_A.symbol, self.component_B.symbol]:
+        if atom_symbol not in [self.component_A.symbol, self.component_B.symbol]:
             raise Bond.AtomNotInBond
 
         if atom_symbol == self.component_A.symbol:
@@ -346,7 +350,7 @@ class Compound:
         provided_energy: energy available for synthesis
         """
         self.components: List[Atom] = components
-        self.bonds = []
+        self.bonds: List[Tuple[Bond, int, int]] = []
         self.preserve_bonds = preserve_bonds or []
         self.remaining_energy: int = provided_energy
 
@@ -488,6 +492,7 @@ class Compound:
                 for bond, a, b in self.bonds if a == i or b == i
             ])
 
+
     @staticmethod
     def atom(atom_symbol:str, provided_energy:int = 0) -> Compound:
         return Compound([Atom.get(atom_symbol)], provided_energy=provided_energy)
@@ -511,6 +516,8 @@ class Compound:
             for _ in range(count):
                 reaction.add_reactant(Compound.atom(symbol))
         product, _ = reaction.evaluate_reaction()
+
+        assert product[0].symbol == formula
 
         return product[0]
 
@@ -621,7 +628,10 @@ class ReactionEngine:
             compound.components[i].cov_electrons -= bond.multiplicity
             compound.components[j].cov_electrons -= bond.multiplicity
             if broke:
-                compound.bonds.remove((bond, i, j))
+                try:
+                    compound.bonds.remove((bond, i, j))
+                except ValueError:
+                    logger.error(f"Broken bond {idx}: {comp_bond} doesn't exist.\nReaction: {self}. \nCompound:{compound}")
 
     def break_bonds(self):
         bond_breaker = self.bond_breaker()
@@ -651,9 +661,11 @@ class ReactionEngine:
 
             for comp_a in unstable_a:
                 for comp_b in unstable_b:
+                    if f'{comp_a[2].symbol}-{comp_b[2].symbol}' not in Bond.BondEnergy[1]:
+                        continue
                     bond = Bond(comp_a[2], comp_b[2], 1)
-
-                    bridges.append(ReactionBridge(bond, comp_a[1], comp_b[1], comp_a[0], comp_b[0]))
+                    if bond.energy != -1:
+                        bridges.append(ReactionBridge(bond, comp_a[1], comp_b[1], comp_a[0], comp_b[0]))
         bridges = sorted(bridges, reverse=True, key=lambda x: x.bond.energy)
         if len(bridges) == 0:
             return None
