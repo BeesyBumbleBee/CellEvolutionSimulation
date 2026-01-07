@@ -215,6 +215,7 @@ class Protocell:
         self.y = y
         self.genome = genome
         self.energy = initial_energy
+        self.color = Protocell.rng.random(size=3)
 
         self.compounds: List[Compound] = []
 
