@@ -334,18 +334,13 @@ class Protocell:
         new_compounds.extend(list([x for x in self.compounds if x.stable]))
 
         for compound in [x for x in self.compounds if not x.stable]:
-            instability = CompoundStability.calculate_instability(compound)
-
-            # Decompose if too unstable
-            if instability > instability_threshold:
+            if compound.should_decompose(instability_threshold):
                 decomposition_count += 1
-
-                fragments, energy, decomposition_summary = CompoundStability.decompose_compound(
-                    deepcopy(compound),
-                    max_breaks=min(3, int(instability) + 1)
-                )
+                decomposition = ReactionEngine()
+                decomposition.add_reactant(compound)
+                fragments, energy = decomposition.evaluate_decomposition(max_breaks=min(3, int(compound.instability) + 1))
                 total_energy_released += energy
-                decompositions_summary.append(decomposition_summary)
+                decompositions_summary.append(decomposition.reaction_summary)
 
                 new_compounds.extend(fragments)
             else:

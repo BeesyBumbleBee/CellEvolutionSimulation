@@ -17,127 +17,6 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-class CompoundStability:
-    """
-    Tracks and manages compound instability.
-
-    Instability factors:
-    1. Unsatisfied electrons (radicals)
-    2. Extreme chain length
-    3. Strained bonds
-    4. High partial charges
-    """
-
-    @staticmethod
-    def calculate_instability(compound) -> float:
-        """Calculate overall instability score (0.0 = stable, 1.0+ = very unstable)"""
-
-        # Factor 1: Unsatisfied electrons (most important)
-        radical_penalty = sum(1 for atom in compound.components if atom.electrons_needed > 0) * 0.3
-
-        # Factor 2: Chain length penalty (exponential for very long chains)
-        chain_length = len(compound.components)
-        if chain_length > 10:
-            length_penalty = (chain_length - 10) * 0.05
-        else:
-            length_penalty = 0.0
-
-        # Factor 3: Bond strain
-        strain_penalty = sum(bond.strain for bond, _, _ in compound.bonds) * 0.2
-
-        # Factor 4: Extreme partial charges
-        charge_penalty = sum(abs(atom.partial_charge) for atom in compound.components
-                             if abs(atom.partial_charge) > 1.0) * 0.1
-
-        total_instability = radical_penalty + length_penalty + strain_penalty + charge_penalty
-
-        return total_instability
-
-    @staticmethod
-    def should_decompose(compound, instability_threshold: float = 0.5) -> bool:
-        """Determine if compound should spontaneously decompose"""
-        instability = CompoundStability.calculate_instability(compound)
-        return instability > instability_threshold
-
-    @staticmethod
-    def find_weakest_bonds(compound, n: int = 3) -> List[Tuple[int, float]]:
-        """Find indices of n weakest bonds for decomposition"""
-        if len(compound.bonds) == 0:
-            return []
-
-        bond_strengths = [
-            (idx, bond.effective_energy)
-            for idx, (bond, _, _) in enumerate(compound.bonds)
-        ]
-
-        sorted_bonds = sorted(bond_strengths, key=lambda x: x[1])
-        return sorted_bonds[:min(n, len(sorted_bonds))]
-
-    @staticmethod
-    def make_inner_connections(compound: Compound) -> Tuple[int, Compound]:
-        reaction = ReactionEngine(0)
-        reaction.add_reactant(compound)
-        reaction.make_inner_reactant_connections()
-        energy_gained = reaction.dissipate_energy()
-        return energy_gained, reaction.reactants[0]
-
-    @staticmethod
-    def decompose_compound(compound, max_breaks: int = 2) -> Tuple[List, float, str]:
-        decompose_str = ""
-        if len(compound.bonds) == 0:
-            return [compound], 0.0, decompose_str
-
-
-        energy_gained, compound = CompoundStability.make_inner_connections(compound)
-        if not CompoundStability.should_decompose(compound, instability_threshold=0.8):
-            return [compound], energy_gained, decompose_str
-
-        instability = CompoundStability.calculate_instability(compound)
-
-        # Determine how many bonds to break based on instability
-        comp_len = len(compound.components)
-        num_breaks = min(max_breaks, max(0, comp_len-int(instability) + 1))
-        if num_breaks == 0:
-            return [compound], 0.0, decompose_str
-        weak_bonds = CompoundStability.find_weakest_bonds(compound, num_breaks)
-
-        if not weak_bonds:
-            return [compound], 0.0, decompose_str
-
-        energy_released = 0.0
-
-        decompose_str = compound.symbol + ' -> '
-
-        # Break bonds from highest index to lowest to avoid index shifting
-        for bond_idx, bond_energy in sorted(weak_bonds, reverse=True):
-            bond, i, j = compound.bonds[bond_idx]
-
-            # Release partial energy (unstable decomposition is less efficient)
-            energy_released += bond_energy * 0.1
-
-            # Remove bond
-            compound.bonds.pop(bond_idx)
-
-            # Update electron counts
-            bond.component_A.cov_electrons -= bond.multiplicity
-            bond.component_B.cov_electrons -= bond.multiplicity
-
-        # Split into separate compounds
-        fragments = compound.split_compounds()
-
-        # Distribute remaining energy among fragments
-        if compound.remaining_energy > 0:
-            total_mass = sum(f.mass for f in fragments)
-            for fragment in fragments:
-                fragment.remaining_energy = int(
-                    (fragment.mass / total_mass) * compound.remaining_energy
-                )
-
-        decompose_str += ' + '.join([fragment.symbol for fragment in fragments])
-
-        return fragments, energy_released, decompose_str
-
-
 class Atom:
     class AtomNotDefined(Exception):
         pass
@@ -425,6 +304,32 @@ class Compound:
     def is_reactive(self) -> bool:
         return all(self.reactive_sites.values())
 
+    @property
+    def instability(self) -> float:
+        # Factor 1: Unsatisfied electrons (most important)
+        radical_penalty = sum(1 for atom in self.components if atom.electrons_needed > 0) * 0.3
+
+        # Factor 2: Chain length penalty (exponential for very long chains)
+        chain_length = len(self.components)
+        if chain_length > 10:
+            length_penalty = (chain_length - 10) * 0.05
+        else:
+            length_penalty = 0.0
+
+        # Factor 3: Bond strain
+        strain_penalty = sum(bond.strain for bond, _, _ in self.bonds) * 0.2
+
+        # Factor 4: Extreme partial charges
+        charge_penalty = sum(abs(atom.partial_charge) for atom in self.components
+                             if abs(atom.partial_charge) > 1.0) * 0.1
+
+        total_instability = radical_penalty + length_penalty + strain_penalty + charge_penalty
+
+        return total_instability
+
+    def should_decompose(self, instability_threshold: float = 0.5) -> bool:
+        return self.instability > instability_threshold
+
     def __hash__(self):
         return hash(f'{self.symbol}' + '|'.join([f'{bond.component_A.symbol}{bond.multiplicity}{bond.component_B.symbol},{i},{j}' for bond,i,j in self.bonds]))
 
@@ -558,6 +463,7 @@ class ReactionBridge:
 class ReactionEngine:
     def __init__(self, starting_energy: int = 0, energy_loss: float = 0.2):
         self.system_energy: int = starting_energy
+        self.outside_energy: int = starting_energy
         self.energy_from_reactions: int = 0
         self.energy_loss: float = energy_loss
         self.reactants: List[Compound] = []
@@ -598,6 +504,12 @@ class ReactionEngine:
     def add_reactants(self, reactant_list: List[Compound]) -> None:
         self.reactants.extend(reactant_list)
         self.system_energy += sum(x.remaining_energy for x in reactant_list)
+
+    def distribute_energy(self, energy: int):
+        total_mass = sum([x.mass for x in self.reactants])
+        for reactant in self.reactants:
+            energy_gained = (reactant.mass / total_mass) * energy
+            reactant.remaining_energy += round(energy_gained)
 
     def evaluate_strains(self):
         for compound_a in self.reactive_reactants:
@@ -715,10 +627,10 @@ class ReactionEngine:
         total_energy_dissipated = 0
         if self.energy_from_reactions > 0:
             for reactant in self.reactants:
-                energy_gained = (reactant.mass / total_mass) * self.energy_from_reactions
+                energy_gained = (reactant.mass / total_mass) * self.system_energy
                 energy_dissipated = energy_gained * self.energy_loss
                 total_energy_dissipated += round(energy_dissipated)
-                reactant.remaining_energy += round(energy_dissipated)
+                reactant.remaining_energy = round(energy_gained - energy_dissipated)
 
         if self.energy_from_reactions < 0:
             overdue_energy = 0
@@ -764,7 +676,7 @@ class ReactionEngine:
             for bond, _, _ in reactant.bonds:
                 bond.strain = 0
 
-    def evaluate_reaction(self, verbose: bool=False) -> Tuple[List[Compound], int]:
+    def evaluate_reaction(self, no_bridge: bool = False) -> Tuple[List[Compound], int]:
         """
         1. Evaluate strain
         2. Break weak bonds until energy is used up
@@ -775,6 +687,8 @@ class ReactionEngine:
         7. Return list of products
         """
         logger.info("*===== Evaluating reaction =====*")
+        self.distribute_energy(self.outside_energy)
+        self.outside_energy = 0
 
         logger.info("*== Reaction state at start ==*")
         logger.info(self.summary)
@@ -788,13 +702,14 @@ class ReactionEngine:
         self.break_bonds()
         logger.debug(self.summary)
 
-        logger.debug("-== Phase 3. Connecting reactants ==-")
-        while (bridge := self.find_best_bridge()) is not None:
-            energy_gained = self.connect_reactants(bridge)
-            self.system_energy += energy_gained
-            self.energy_from_reactions += energy_gained
-            self.update_partial_charges()
-        logger.debug(self.summary)
+        if not no_bridge:
+            logger.debug("-== Phase 3. Connecting reactants ==-")
+            while (bridge := self.find_best_bridge()) is not None:
+                energy_gained = self.connect_reactants(bridge)
+                self.system_energy += energy_gained
+                self.energy_from_reactions += energy_gained
+                self.update_partial_charges()
+            logger.debug(self.summary)
 
         logger.debug("-== Phase 4. Making bonds inside reactants (double, triple bonds) ==-")
         self.make_inner_reactant_connections()
@@ -803,9 +718,11 @@ class ReactionEngine:
         if all(reactant.symbol in starting_reactants for reactant in self.reactants):
             self.energy_from_reactions = 0
 
-        logger.debug("-== Phase 5. Distributing energy over reactants (with energy loss) ==-")
-        energy_lost = self.dissipate_energy()
-        self.system_energy -= energy_lost
+        energy_lost = 0
+        if self.energy_from_reactions != 0:
+            logger.debug("-== Phase 5. Distributing energy over reactants (with energy loss) ==-")
+            energy_lost = self.dissipate_energy()
+            self.system_energy -= energy_lost
 
         logger.debug("-== Phase 6. Removing strains  ==-")
         self.remove_strain()
@@ -819,6 +736,26 @@ class ReactionEngine:
 
         logger.info("*===============================*")
         return self.reactants, energy_lost
+
+    def evaluate_decomposition(self, max_breaks: int = 3, energy_loss: float = 0.2):
+        initial_energy = self.system_energy
+        starting_reactants = [x.symbol for x in self.reactants]
+        products = []
+        for _ in range(max_breaks):
+            self.evaluate_reaction(no_bridge=True)
+            if len(self.reactants) > 1:
+                sorted_reactants = list(sorted(self.reactants, key=lambda x: len(x.components), reverse=True))
+                products.extend(sorted_reactants[1:])
+                self.reactants = [sorted_reactants[0]]
+        products.extend(self.reactants)
+        if all([x == y for x in products for y in self.reactants]):
+            self.reactants = products
+            self.reaction_summary = ""
+        else:
+            self.reactants = products
+            self.__update_reaction_summary(reactants=sorted(starting_reactants),
+                                           products=sorted([x.symbol for x in self.reactants]))
+        return self.reactants, (initial_energy - self.system_energy) * energy_loss
 
 
 def __hydrogen_combustion_example():
