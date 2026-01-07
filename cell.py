@@ -4,7 +4,7 @@ from copy import deepcopy
 import numpy as np
 from typing import List, Tuple, Dict
 from dataclasses import dataclass
-from chemistry import Atom, Compound, ReactionEngine, CompoundStability
+from chemistry import Atom, Compound, ReactionEngine
 from environment import Environment
 
 
@@ -13,17 +13,6 @@ class PossibleReactant:
         self.need_atoms: List[str] = need_atoms
         if need_atoms is None:
             self.need_atoms = []
-
-
-    def check_reactant(self, reactant: Compound) -> bool:
-        if self.need_atoms:
-            reactant = list(reactant.symbol)
-            for atom in self.need_atoms:
-                if atom not in reactant:
-                    return False
-                reactant.remove(atom)
-
-        return True
 
     def __repr__(self):
         out_str = "Compound "
@@ -35,6 +24,25 @@ class PossibleReactant:
                     out_str += "and "
 
         return out_str
+
+    @property
+    def complexity(self) -> int:
+        return len(self.need_atoms)
+
+    def check_reactant(self, reactant: Compound) -> bool:
+        if self.need_atoms:
+            import re
+            pattern = r'([A-Z][a-z]?)(\d*)'
+            matches = re.findall(pattern, reactant.symbol)
+            matches = list([(x[0], int(x[1])) for x in matches])
+
+            for atom in self.need_atoms:
+                if atom not in [x[0] for x in matches if x[1] > 0]:
+                    return False
+                idx = [x[0] for x in matches].index(atom)
+                matches[idx] = matches[idx][0], matches[idx][1] - 1
+
+        return True
 
     def get_mutated(self, mutation_rate: float = 1.0, rng: np.random = np.random.default_rng()) -> PossibleReactant:
         from copy import deepcopy
@@ -56,7 +64,7 @@ class PossibleReactant:
 
     @staticmethod
     def get_random(rng: np.random = np.random.default_rng()) -> PossibleReactant:
-        num_need_atoms = rng.integers(1, 3)
+        num_need_atoms = rng.integers(1, 6)
         return PossibleReactant([rng.choice(list(Atom.basic_atoms.keys())) for _ in range(num_need_atoms)])
 
 
@@ -72,6 +80,10 @@ class ReactionRule:
 
     def __repr__(self):
         return f"Reaction rule: Energy to use = {self.use_energy}, Possible reactants = {self.possible_reactants}"
+
+    @property
+    def complexity(self) -> int:
+        return sum([x.complexity for x in self.possible_reactants])
 
     def summary(self) -> str:
         out_str = f"Use {self.use_energy:6.2f} kJ/mol to connect ({len(self.possible_reactants)}) reactants:\n"
@@ -131,7 +143,7 @@ class ReactionRule:
         return ReactionRule(
             possible_reactants=[PossibleReactant.get_random(rng)
                                 for _ in range(num_reactants)],
-            use_energy=int(rng.integers(0, 300)),
+            use_energy=int(rng.integers(0, 500)),
             priority=round(rng.uniform(low=0.5, high=2.0), 2))
 
 
@@ -139,6 +151,12 @@ class Genome:
     def __init__(self, rules: List[ReactionRule]):
         self.rules = rules
 
+    def __len__(self) -> int:
+        return len(self.rules)
+
+    @property
+    def complexity(self) -> int:
+        return sum([x.complexity for x in self.rules])
 
     def get_mutated(self, mutation_rate: float = 0.4, rng: np.random = np.random.default_rng()) -> Genome:
         from copy import deepcopy
@@ -163,7 +181,7 @@ class Genome:
 
     @staticmethod
     def get_random(rng: np.random = np.random.default_rng()) -> Genome:
-        num_rules = 1
+        num_rules = rng.integers(1, 4)
         return Genome(rules=[ReactionRule.get_random(rng) for _ in range(num_rules)])
 
 @dataclass
@@ -180,6 +198,8 @@ class CellLog:
     reactants_used: List[Tuple[str]] = None
     reactions: List[str] = None
     decompositions: List[str] = None
+    genome_length: int = 0
+    genome_complexity: int = 0
 
 
 class Protocell:
@@ -272,6 +292,8 @@ class Protocell:
         self.age += 1
         log['age'] = self.age
         log['generation'] = self.generation
+        log['genome_length'] = len(self.genome)
+        log['genome_complexity'] = self.genome.complexity
 
         # 1. Absorb energy from environment
         log['energy_from_environment'] = self.absorb_energy(env)
@@ -284,6 +306,8 @@ class Protocell:
 
         # 4. Metabolise -> use energy to keep alive
         log['energy_used'] += self.metabolise()
+
+
 
         return CellLog(
             **log
@@ -380,7 +404,7 @@ class Protocell:
         number_of_reactions = 0
         for rule in self.genome.rules:
             energy_used, energy_from_reaction, reactants_used, reaction_summary = self.execute_reaction_rule(rule)
-            if reactants_used is not None:
+            if energy_from_reaction != 0:
                 total_energy_used += energy_used
                 total_energy_from_reaction += energy_from_reaction
                 all_reactants.append(reactants_used)
@@ -396,7 +420,7 @@ class Protocell:
             instability_threshold=0.8
         )
 
-        for decomposition_summary in [x for x in decompositions_summary if len(x) > 1]:
+        for decomposition_summary in [x for x in decompositions_summary if x != ""]:
             decompositions.append(decomposition_summary)
             try:
                 self.decompositions_count[decomposition_summary] += 1
