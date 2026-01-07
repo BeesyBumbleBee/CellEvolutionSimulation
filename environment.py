@@ -56,7 +56,7 @@ class Environment:
         # 'P1',
     ]
 
-    def __init__(self, width: int, height: int, ambient_temperature: float = 298.0):
+    def __init__(self, width: int, height: int, ambient_temperature: float = 323.0):
         self.width: int = width
         self.height: int = height
 
