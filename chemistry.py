@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import StrEnum
 from itertools import combinations
-from typing import List, Dict, Optional, Tuple, Generator
+from typing import List, Dict, Optional, Tuple, Generator, Callable
 from dataclasses import dataclass
 import logging
 import networkx as nx
@@ -226,6 +226,8 @@ class Bond:
 
 
 class Compound:
+    predefined_compounds: Dict[str, Callable] = {}
+
     def __init__(self, components: List[Atom],
                  preserve_bonds: Optional[List[Tuple[int, int, int]]] = None,
                  provided_energy: int = 0):
@@ -414,6 +416,9 @@ class Compound:
         Create a compound from a chemical formula string
         Example: from_formula("H2O", 2000) or from_formula("C6H12O6", 50000)
         """
+        if formula in Compound.predefined_compounds.keys():
+            return Compound.predefined_compounds[formula](provided_energy)
+
         import re
 
         # Parse formula: C6H12O6 -> [('C', 6), ('H', 12), ('O', 6)]
@@ -795,6 +800,66 @@ def __carbic_acid_synthesis_example():
     reaction.add_reactant(h2o)
 
     result, _ = reaction.evaluate_reaction()
+
+def __hydrogen_sulfide(energy: int = 0) -> Compound:
+    comps = [Atom.get('H'), Atom.get('H'), Atom.get('S')]
+    bonds = [
+        (Bond(comps[0], comps[2], 1), 0, 2),
+        (Bond(comps[1], comps[2], 1), 1, 2),
+    ]
+    comps[0].cov_electrons = 2
+    comps[1].cov_electrons = 2
+    comps[2].cov_electrons = 8
+    h2s1 = Compound(components=comps, provided_energy=energy)
+    h2s1.bonds = bonds
+    return h2s1
+
+def __phosphate(energy: int = 0) -> Compound:
+    comps = [ Atom.get('H'), Atom.get('H'), Atom.get('H'), Atom.get('P'), Atom.get('O'), Atom.get('O'), Atom.get('O'), Atom.get('O') ]
+    bonds = [
+        (Bond(comps[0], comps[5], 1), 0, 5),
+        (Bond(comps[1], comps[6], 1), 1, 6),
+        (Bond(comps[2], comps[7], 1), 2, 7),
+        (Bond(comps[3], comps[4], 2), 3, 4),
+        (Bond(comps[3], comps[5], 1), 3, 5),
+        (Bond(comps[3], comps[6], 1), 3, 6),
+        (Bond(comps[3], comps[7], 1), 3, 7),
+    ]
+    comps[0].cov_electrons = 2
+    comps[1].cov_electrons = 2
+    comps[2].cov_electrons = 2
+    comps[3].cov_electrons = 8
+    comps[4].cov_electrons = 8
+    comps[5].cov_electrons = 8
+    comps[6].cov_electrons = 8
+    comps[7].cov_electrons = 8
+    h3p1o4 = Compound(comps, provided_energy=energy)
+    h3p1o4.bonds = bonds
+    return h3p1o4
+
+def __ammonia(energy: int) -> Compound:
+    comps = [Atom.get('H'), Atom.get('H'), Atom.get('H'), Atom.get('N')]
+    bonds = [
+        (Bond(comps[0], comps[3], 1), 0, 3),
+        (Bond(comps[1], comps[3], 1), 1, 3),
+        (Bond(comps[2], comps[3], 1), 2, 3),
+    ]
+    comps[0].cov_electrons = 2
+    comps[1].cov_electrons = 2
+    comps[2].cov_electrons = 2
+    comps[3].cov_electrons = 8
+    n1h3 = Compound(comps, provided_energy=energy)
+    n1h3.bonds = bonds
+    return n1h3
+
+
+predefined_compounds = {
+    'H2S1': __hydrogen_sulfide,
+    'H3P1O4': __phosphate,
+    'N1H3': __ammonia,
+}
+
+Compound.predefined_compounds = predefined_compounds
 
 
 if __name__ == "__main__":
