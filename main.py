@@ -76,10 +76,14 @@ def test_one_shot_sim():
 def test_generations_sim():
     timesteps_per_epoch = 240
     early_stop = 300
-    epochs = 15
+    epochs = 5
     visualize = False
 
     seed: int = np.random.default_rng().integers(low=0, high=1000000)
+    # Interesting seeds:
+    # 850985
+    # 234042
+
     ended_successfully = False
 
     Environment.natural_resources = [
